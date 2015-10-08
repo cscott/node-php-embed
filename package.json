@@ -1,0 +1,43 @@
+{
+  "name": "php-embed",
+  "description": "Bidirectional interoperability between PHP and Node.js",
+  "version": "0.0.0-git",
+  "homepage": "http://github.com/cscott/node-php-embed",
+  "author": "C. Scott Ananian <cscott@cscott.net>",
+  "main": "lib/index",
+  "keywords": [
+    "php",
+    "hhvm"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "cscott/node-php-embed"
+  },
+  "license": "PHP-3.01",
+  "scripts": {
+    "configure": "node-pre-gyp configure",
+    "build": "node-pre-gyp build",
+    "rebuild": "node-pre-gyp rebuild",
+    "test": "mocha",
+    "install": "node-pre-gyp install --fallback-to-build",
+    "gh-publish": "scripts/publish.js",
+    "clean": "rm -rf node_modules lib/binding build"
+  },
+  "binary": {
+    "module_name": "php_embed",
+    "module_path": "./lib/binding/{node_abi}-{platform}-{arch}",
+    "host": "https://github.com",
+    "remote_path": "/cscott/node-php-embed/releases/download/{version}/"
+  },
+  "dependencies": {
+    "nan": "~2.0.9",
+    "node-pre-gyp": "~0.6.11"
+  },
+  "bundleDependencies": [
+    "node-pre-gyp"
+  ],
+  "devDependencies": {
+    "mocha": "~2.3.3",
+    "should": "~7.1.0"
+  }
+}
