@@ -1,5 +1,5 @@
 var path = require('path');
-var stream = require('stream');
+var stream = require('readable-stream'); // for node 0.8.x compatability
 var util = require('util');
 
 require('should');
