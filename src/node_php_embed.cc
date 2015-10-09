@@ -1,4 +1,5 @@
 #include <nan.h>
+#include "asyncstreamworker.h"
 
 #include <sapi/embed/php_embed.h>
 #include <Zend/zend_exceptions.h>
@@ -12,7 +13,7 @@ static void node_php_embed_ensure_init(void);
 
 /* Per-thread storage for the module */
 ZEND_BEGIN_MODULE_GLOBALS(node_php_embed)
-    const Nan::AsyncProgressWorker::ExecutionProgress *progress;
+    const AsyncStreamWorker::ExecutionStream *stream;
 ZEND_END_MODULE_GLOBALS(node_php_embed)
 
 ZEND_DECLARE_MODULE_GLOBALS(node_php_embed);
@@ -26,10 +27,10 @@ ZEND_DECLARE_MODULE_GLOBALS(node_php_embed);
 
 // XXX async progress worker doesn't guarantee receipt of messages;
 // we need to rewrite it to use guaranteed delivery.
-class node_php_embed::PhpRequestWorker : public Nan::AsyncProgressWorker {
+class node_php_embed::PhpRequestWorker : public AsyncStreamWorker {
 public:
     PhpRequestWorker(Nan::Callback *callback, v8::Local<v8::Object> stream, v8::Isolate *isolate, char *source)
-        : AsyncProgressWorker(callback), result_(NULL) {
+        : AsyncStreamWorker(callback), result_(NULL) {
         size_t size = strlen(source) + 1;
         source_ = new char[size];
         memcpy(source_, source, size);
@@ -46,14 +47,14 @@ public:
     // Executed inside the PHP thread.  It is not safe to access V8 or
     // V8 data structures here, so everything we need for input and output
     // should go on `this`.
-    void Execute(const ExecutionProgress &progress) {
+    void Execute(const ExecutionStream &stream) {
         zval *retval;
         TSRMLS_FETCH();
         if (php_request_startup(TSRMLS_C) == FAILURE) {
             Nan::ThrowError("can't create request");
             return;
         }
-        NODE_PHP_EMBED_G(progress) = &progress;
+        NODE_PHP_EMBED_G(stream) = &stream;
         ALLOC_INIT_ZVAL(retval);
         zend_first_try {
             if (FAILURE == zend_eval_string_ex(source_, retval, "request", true)) {
@@ -72,11 +73,11 @@ public:
             SetErrorMessage("<bailout>");
         } zend_end_try();
         zval_dtor(retval);
-        NODE_PHP_EMBED_G(progress) = NULL;
+        NODE_PHP_EMBED_G(stream) = NULL;
         php_request_shutdown(NULL);
     }
     // This is again handled in the main loop.
-    void HandleProgressCallback(const char *data, size_t size) {
+    void HandleStreamCallback(const char *data, size_t size) {
         Nan::HandleScope scope;
         v8::Local<v8::Object> stream = GetFromPersistent("stream")
             .As<v8::Object>();
@@ -107,9 +108,9 @@ private:
 /* PHP extension metadata */
 
 static int node_php_embed_ub_write(const char *str, unsigned int str_length TSRMLS_DC) {
-    // Fetch the ExecutionProgress object for this thread.
-    const Nan::AsyncProgressWorker::ExecutionProgress *progress = NODE_PHP_EMBED_G(progress);
-    progress->Send(str, str_length);
+    // Fetch the ExecutionStream object for this thread.
+    const AsyncStreamWorker::ExecutionStream *stream = NODE_PHP_EMBED_G(stream);
+    stream->Send(str, str_length);
     return str_length;
 }
 
@@ -150,7 +151,7 @@ PHP_MINFO_FUNCTION(node_php_embed) {
 }
 
 static void node_php_embed_globals_ctor(zend_node_php_embed_globals *node_php_embed_globals TSRMLS_DC) {
-    node_php_embed_globals->progress = NULL;
+    node_php_embed_globals->stream = NULL;
 }
 static void node_php_embed_globals_dtor(zend_node_php_embed_globals *node_php_embed_globals TSRMLS_DC) {
     // no clean up required
