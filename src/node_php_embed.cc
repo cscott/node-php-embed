@@ -57,7 +57,7 @@ public:
         NODE_PHP_EMBED_G(stream) = &stream;
         ALLOC_INIT_ZVAL(retval);
         zend_first_try {
-            if (FAILURE == zend_eval_string_ex(source_, retval, "request", true)) {
+            if (FAILURE == zend_eval_string_ex(source_, retval, "request", true TSRMLS_CC)) {
                 if (EG(exception)) {
                     zend_clear_exception(TSRMLS_C);
                     SetErrorMessage("<threw exception");
@@ -168,8 +168,8 @@ zend_module_entry node_php_embed_module_entry = {
     PHP_MINFO(node_php_embed), /* MINFO */
     NODE_PHP_EMBED_VERSION,
     ZEND_MODULE_GLOBALS(node_php_embed),
-    (void(*)(void*))node_php_embed_globals_ctor,
-    (void(*)(void*))node_php_embed_globals_dtor,
+    (void(*)(void* TSRMLS_DC))node_php_embed_globals_ctor,
+    (void(*)(void* TSRMLS_DC))node_php_embed_globals_dtor,
     NULL, /* post deactivate func */
     STANDARD_MODULE_PROPERTIES_EX
 };
@@ -209,7 +209,7 @@ NAN_MODULE_INIT(ModuleInit) {
 void ModuleShutdown(void *arg) {
     TSRMLS_FETCH();
     php_request_startup(TSRMLS_C);
-    php_embed_shutdown(TSRMLS_CC);
+    php_embed_shutdown(TSRMLS_C);
     if (php_embed_module.php_ini_path_override) {
         delete[] php_embed_module.php_ini_path_override;
     }
