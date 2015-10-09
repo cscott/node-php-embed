@@ -24,6 +24,13 @@ addons:
 
 
 matrix:
+  allow_failures:
+    # segfault on amd64 (but not on x86)
+    - os: linux
+      env: NODE_VERSION="iojs-3.3.1"
+    # segfault on amd64 (but not on x86)
+    - os: linux
+      env: NODE_VERSION="iojs-3.1.0"
   include:
      # Linux
      - os: linux
