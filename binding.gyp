@@ -5,7 +5,7 @@
   },
   'targets': [
     {
-      'target_name': 'php_embed',
+      'target_name': 'node_php_embed',
       "include_dirs": ["<!(node -e \"require('nan')\")"],
       'conditions': [
         ['libphp5 != "internal"', {

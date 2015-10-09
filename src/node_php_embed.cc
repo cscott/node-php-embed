@@ -215,4 +215,4 @@ void ModuleShutdown(void *arg) {
     }
 }
 
-NODE_MODULE(php_embed, ModuleInit)
+NODE_MODULE(node_php_embed, ModuleInit)
