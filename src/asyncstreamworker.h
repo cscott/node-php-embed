@@ -28,7 +28,7 @@ namespace node_php_embed {
   virtual ~AsyncStreamWorker() {
     uv_mutex_destroy(&async_lock);
 
-    for (std::list<std::pair<char*,size_t>>::iterator it = asyncdata_.begin();
+    for (std::list<std::pair<char*,size_t> >::iterator it = asyncdata_.begin();
          it != asyncdata_.end(); it++) {
         delete[] it->first;
     }
@@ -50,7 +50,7 @@ namespace node_php_embed {
   }
 
   void WorkStream() {
-    std::list<std::pair<char*,size_t>> newData;
+    std::list<std::pair<char*,size_t> > newData;
     bool waiting;
 
     uv_mutex_lock(&async_lock);
@@ -58,7 +58,7 @@ namespace node_php_embed {
     waiting = waitingForStream;
     uv_mutex_unlock(&async_lock);
 
-    for (std::list<std::pair<char*,size_t>>::iterator it = newData.begin();
+    for (std::list<std::pair<char*,size_t> >::iterator it = newData.begin();
          it != newData.end(); it++) {
         HandleStreamCallback(it->first, it->second);
         delete[] it->first;
@@ -129,7 +129,7 @@ namespace node_php_embed {
 
   uv_async_t *async;
   uv_mutex_t async_lock;
-  std::list<std::pair<char*,size_t>> asyncdata_;
+  std::list<std::pair<char*,size_t> > asyncdata_;
   bool waitingForStream;
 };
 
