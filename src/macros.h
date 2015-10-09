@@ -63,7 +63,7 @@
 
 #define GET_PROPERTY(source, property)                                         \
     Nan::Get((source), NEW_STR(property))                                      \
-      .FromMaybe((Local<Value>)Nan::Undefined())
+        .FromMaybe((v8::Local<v8::Value>)Nan::Undefined())
 
 static NAN_INLINE int32_t CAST_INT(v8::Local<v8::Value> v, int32_t defaultValue) {
     Nan::HandleScope scope;

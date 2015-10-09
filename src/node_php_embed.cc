@@ -1,18 +1,39 @@
 #include <nan.h>
+
 #include <sapi/embed/php_embed.h>
 #include <Zend/zend_exceptions.h>
+#include <ext/standard/info.h>
+
+#include "node_php_embed.h"
 #include "macros.h"
 
-static void ModuleShutdown(void *arg);
+using namespace node_php_embed;
 
-class PhpRequestWorker : public Nan::AsyncWorker {
+/* Per-thread storage for the module */
+ZEND_BEGIN_MODULE_GLOBALS(node_php_embed)
+    const Nan::AsyncProgressWorker::ExecutionProgress *progress;
+ZEND_END_MODULE_GLOBALS(node_php_embed)
+
+ZEND_DECLARE_MODULE_GLOBALS(node_php_embed);
+
+#ifdef ZTS
+# define NODE_PHP_EMBED_G(v) \
+    TSRMG(node_php_embed_globals_id, zend_node_php_embed_globals *, v)
+#else
+# define NODE_PHP_EMBED_G(v) (node_php_embed_globals.v)
+#endif
+
+// XXX async progress worker doesn't guarantee receipt of messages;
+// we need to rewrite it to use guaranteed delivery.
+class node_php_embed::PhpRequestWorker : public Nan::AsyncProgressWorker {
 public:
-    PhpRequestWorker(Nan::Callback *callback, v8::Isolate *isolate, char *source)
-        : AsyncWorker(callback), result_(NULL) {
+    PhpRequestWorker(Nan::Callback *callback, v8::Local<v8::Object> stream, v8::Isolate *isolate, char *source)
+        : AsyncProgressWorker(callback), result_(NULL) {
         size_t size = strlen(source) + 1;
         source_ = new char[size];
         memcpy(source_, source, size);
         isolate_ = isolate;
+        SaveToPersistent("stream", stream);
     }
     ~PhpRequestWorker() {
         delete[] source_;
@@ -24,13 +45,14 @@ public:
     // Executed inside the PHP thread.  It is not safe to access V8 or
     // V8 data structures here, so everything we need for input and output
     // should go on `this`.
-    void Execute() {
+    void Execute(const ExecutionProgress &progress) {
+        zval *retval;
         TSRMLS_FETCH();
         if (php_request_startup(TSRMLS_C) == FAILURE) {
             Nan::ThrowError("can't create request");
             return;
         }
-        zval *retval;
+        NODE_PHP_EMBED_G(progress) = &progress;
         ALLOC_INIT_ZVAL(retval);
         zend_first_try {
             if (FAILURE == zend_eval_string_ex(source_, retval, "request", true)) {
@@ -49,7 +71,20 @@ public:
             SetErrorMessage("<bailout>");
         } zend_end_try();
         zval_dtor(retval);
+        NODE_PHP_EMBED_G(progress) = NULL;
         php_request_shutdown(NULL);
+    }
+    // This is again handled in the main loop.
+    void HandleProgressCallback(const char *data, size_t size) {
+        Nan::HandleScope scope;
+        v8::Local<v8::Object> stream = GetFromPersistent("stream")
+            .As<v8::Object>();
+        v8::Local<v8::Value> write = GET_PROPERTY(stream, "write");
+        if (!write->IsFunction()) { return; /* silent failure */ }
+        v8::Local<v8::Value> argv[] = {
+            Nan::CopyBuffer(data, size).ToLocalChecked()
+        };
+        Nan::CallAsFunction(write.As<v8::Object>(), stream, 1, argv);
     }
     // Executed when the async work is complete.
     // This function will be run inside the main event loop
@@ -68,6 +103,15 @@ private:
     v8::Isolate *isolate_;
 };
 
+/* PHP extension metadata */
+
+static int node_php_embed_ub_write(const char *str, unsigned int str_length TSRMLS_DC) {
+    // Fetch the ExecutionProgress object for this thread.
+    const Nan::AsyncProgressWorker::ExecutionProgress *progress = NODE_PHP_EMBED_G(progress);
+    progress->Send(str, str_length);
+    return str_length;
+}
+
 NAN_METHOD(request) {
 
     REQUIRE_ARGUMENTS(4);
@@ -79,25 +123,64 @@ NAN_METHOD(request) {
     if (!info[2]->IsObject()) {
         return Nan::ThrowTypeError("stream expected");
     }
+    v8::Local<v8::Object> stream = info[2].As<v8::Object>();
     if (!info[3]->IsFunction()) {
         return Nan::ThrowTypeError("callback expected");
     }
     Nan::Callback *callback = new Nan::Callback(info[3].As<v8::Function>());
 
-    Nan::AsyncQueueWorker(new PhpRequestWorker(callback, v8::Isolate::GetCurrent(), *source));
+    Nan::AsyncQueueWorker(new PhpRequestWorker(callback, stream, v8::Isolate::GetCurrent(), *source));
 }
+
+/** PHP module housekeeping */
+PHP_MINFO_FUNCTION(node_php_embed) {
+    php_info_print_table_start();
+    php_info_print_table_row(2, "Version", NODE_PHP_EMBED_VERSION);
+    php_info_print_table_row(2, "Node version", NODE_VERSION_STRING);
+    php_info_print_table_row(2, "PHP version", PHP_VERSION);
+    php_info_print_table_end();
+}
+
+static void node_php_embed_globals_ctor(zend_node_php_embed_globals *node_php_embed_globals TSRMLS_DC) {
+    node_php_embed_globals->progress = NULL;
+}
+static void node_php_embed_globals_dtor(zend_node_php_embed_globals *node_php_embed_globals TSRMLS_DC) {
+    // no clean up required
+}
+
+zend_module_entry node_php_embed_module_entry = {
+    STANDARD_MODULE_HEADER,
+    "node-php-embed", /* extension name */
+    NULL, /* function entries */
+    NULL, /* MINIT */
+    NULL, /* MSHUTDOWN */
+    NULL, /* RINIT */
+    NULL, /* RSHUTDOWN */
+    PHP_MINFO(node_php_embed), /* MINFO */
+    NODE_PHP_EMBED_VERSION,
+    ZEND_MODULE_GLOBALS(node_php_embed),
+    (void(*)(void*))node_php_embed_globals_ctor,
+    (void(*)(void*))node_php_embed_globals_dtor,
+    NULL, /* post deactivate func */
+    STANDARD_MODULE_PROPERTIES_EX
+};
+
+/** Node module housekeeping */
+static void ModuleShutdown(void *arg);
 
 NAN_MODULE_INIT(ModuleInit) {
     TSRMLS_FETCH();
     char *argv[] = { };
     int argc = 0;
     php_embed_module.php_ini_ignore = true;
+    php_embed_module.ub_write = node_php_embed_ub_write;
     php_embed_init(argc, argv PTSRMLS_CC);
     // shutdown the initially-created request
     php_request_shutdown(NULL);
+    zend_startup_module(&node_php_embed_module_entry);
     node::AtExit(ModuleShutdown, NULL);
-    Nan::Set(target, NEW_STR("request"),
-             Nan::GetFunction(Nan::New<v8::FunctionTemplate>(request)).ToLocalChecked());
+    // Export functions
+    NAN_EXPORT(target, request);
 }
 
 void ModuleShutdown(void *arg) {
@@ -105,6 +188,5 @@ void ModuleShutdown(void *arg) {
     php_request_startup(TSRMLS_C);
     php_embed_shutdown(TSRMLS_CC);
 }
-
 
 NODE_MODULE(php_embed, ModuleInit)
