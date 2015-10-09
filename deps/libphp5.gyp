@@ -118,7 +118,9 @@
       },
       'link_settings': {
         'libraries': [
-            '<(SHARED_INTERMEDIATE_DIR)/build/lib/libphp5.a'
+            '<(SHARED_INTERMEDIATE_DIR)/build/lib/libphp5.a',
+            # these match `php-config --libs`
+            '-lcrypt -lresolv -lrt -lm -ldl -lnsl -lxml2'
         ]
       },
       'sources': [

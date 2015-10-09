@@ -1,0 +1,140 @@
+# Much of this is borrowed from node-sqlite3 and node-icu-bidi
+sudo: false
+
+language: cpp
+
+git:
+  depth: 10
+
+addons:
+  apt:
+    sources:
+    - ubuntu-toolchain-r-test
+    - llvm-toolchain-precise-3.5
+    packages:
+    - clang-3.5
+    - gcc-5-multilib
+    - g++-5-multilib
+
+## don't re-build for tags so that [publish binary] is not re-run
+## https://github.com/travis-ci/travis-ci/issues/1532
+#branches:
+#  except:
+#    - /^[0-9]+[.][0-9]+[.][0-9]+/
+
+
+matrix:
+  include:
+     # Linux
+     - os: linux
+       compiler: clang
+       env: NODE_VERSION="4.1.2" # node abi 46
+     - os: linux
+       compiler: clang
+       env: NODE_VERSION="4.0.0"
+     - os: linux
+       compiler: clang
+       env: NODE_VERSION="iojs-3.3.1" # node abi 45
+     - os: linux
+       compiler: clang
+       env: NODE_VERSION="iojs-3.1.0"
+     - os: linux
+       compiler: clang
+       env: NODE_VERSION="iojs-2.4.0" PUBLISHABLE=false
+     - os: linux
+       env: NODE_VERSION="iojs-2.4.0" BUILD_X86=true # node abi 44
+     - os: linux
+       compiler: clang
+       env: NODE_VERSION="iojs-1.8.4" PUBLISHABLE=false
+     - os: linux
+       env: NODE_VERSION="iojs-1.8.4" BUILD_X86=true # node abi 43
+     - os: linux
+       env: NODE_VERSION="0.12.7" BUILD_X86=true # node abi 14
+     - os: linux
+       env: NODE_VERSION="0.10.40" BUILD_X86=true # node abi 11
+     - os: linux
+       env: NODE_VERSION="0.8.28" BUILD_X86=true # node abi 1
+# disabled because libphp5-embed package is not on whitelist yet
+# https://github.com/travis-ci/apt-package-whitelist#package-approval-process
+#     # test building against external libphp5
+#     - os: linux
+#       env: NODE_VERSION="4.1.1" EXTERNAL_LIBPHP=true PUBLISHABLE=false
+#       addons:
+#         apt:
+#            sources: [ 'libphp5-embed:i386', 'php5-dev:i386' ]
+#            packages: [ 'libphp5-embed', 'php5-dev']
+     # OS X
+     - os: osx
+       compiler: clang
+       env: NODE_VERSION="4.1.2" # node abi 46
+     - os: osx
+       compiler: clang
+       env: NODE_VERSION="iojs-3.3.1" # node abi 45
+     - os: osx
+       compiler: clang
+       env: NODE_VERSION="iojs-2.4.0" # node abi 44
+     - os: osx
+       compiler: clang
+       env: NODE_VERSION="iojs-1.8.4" # node abi 43
+     - os: osx
+       compiler: clang
+       env: NODE_VERSION="0.12.7" # node abi 14
+     - os: osx
+       compiler: clang
+       env: NODE_VERSION="0.10.40" # node abi 11
+     - os: osx
+       compiler: clang
+       env: NODE_VERSION="0.8.28" # node abi 1
+
+env:
+  global:
+   - secure: "p/3rptxI8KJGhU1omrUu2WRClXhVwbRoWC3YfjaQr6rDMUMkmARc4tWT1UnL6e7bKAG2vKO9ko1d3meT6rHZL8ma/I5z9tvm3gefxLdIeV1I93JNX3nCLNkCDdIOcHEFibr1R8qsrcLqTaVoLMBhnNxFEvUFLbebD3ArFBy0zxY="
+
+#matrix:
+#  allow_failures:
+#   # v8 API changed in 0.11, needs update
+#   - env: NODE_VERSION="0.11"
+
+before_install:
+- export PUBLISHABLE=${PUBLISHABLE:-true}
+- if test "$TRAVIS_OS_NAME $CC" = "linux gcc" ; then
+    export CXX="g++-5" ;
+    export CC="gcc-5" ;
+  fi
+- if test "$TRAVIS_OS_NAME $CC" = "linux clang" ; then
+    export CXX="clang++-3.5" ;
+    export CC="clang-3.5" ;
+  fi
+# check if tag exists and matches package.json
+- scripts/validate_tag.sh
+- echo $NODE_VERSION
+- rm -rf ~/.nvm/ && git clone --depth 1 https://github.com/creationix/nvm.git ~/.nvm
+- source ~/.nvm/nvm.sh
+- nvm install $NODE_VERSION
+- nvm use $NODE_VERSION
+- if test "$NODE_VERSION" = "0.8.28" ; then npm install -g npm@1.4.28 ; fi
+#- npm config set spin=false
+#- npm config set loglevel=http
+- node --version
+- npm --version
+
+install:
+# put node-pre-gyp on path
+- export PATH=./node_modules/.bin/:$PATH
+
+before_script:
+# get commit message
+- export COMMIT_MESSAGE=$(git show -s --format=%B $TRAVIS_COMMIT | tr -d '\n')
+
+script:
+- node --version
+- npm --version
+- if test -z "$EXTERNAL_LIBPHP" ; then npm install --build-from-source ; else npm install --build-from-source --libphp5=external ; fi
+- node-pre-gyp package testpackage
+- npm test
+- export PUBLISH=false
+# Normal case: tagged builds trigger 32-bit and 64-bit x86 builds
+- if scripts/validate_tag.sh --check ; then PUBLISH=true; fi
+# Workaround to trigger a manual x86 build
+- if test "$TRAVIS_BRANCH" == "x86" -a  "${COMMIT_MESSAGE#*'[publish binary]'}" != "$COMMIT_MESSAGE"; then PUBLISH=true; fi
+- if test "$PUBLISH,$PUBLISHABLE" = "true,true"; then npm install core-js@1.1.4 && npm install request@2.64.0 && npm run gh-publish && if test -n "$BUILD_X86"; then scripts/publish_x86.sh ; fi ; fi
