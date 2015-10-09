@@ -105,6 +105,9 @@ before_install:
     export CXX="clang++-3.5" ;
     export CC="clang-3.5" ;
   fi
+- if test "$TRAVIS_OS_NAME $CC" = "osx clang" ; then
+    export MACOSX_DEPLOYMENT_TARGET=10.7 ;
+  fi
 # check if tag exists and matches package.json
 - scripts/validate_tag.sh
 - echo $NODE_VERSION
@@ -130,7 +133,7 @@ script:
 - node --version
 - npm --version
 - LIBCRYPT=''
-- if test "$TRAVIS_OS_NAME" = "osx"; then LIBCRYPT="--libcrypt=-lm" ; fi
+- if test "$TRAVIS_OS_NAME" = "osx"; then LIBCRYPT="--libcrypt=-liconv" ; fi
 - if test -z "$EXTERNAL_LIBPHP" ; then npm install --build-from-source $LIBCRYPT; else npm install --build-from-source --libphp5=external ; fi
 - node-pre-gyp package testpackage
 - npm test

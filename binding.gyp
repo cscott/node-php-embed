@@ -19,6 +19,14 @@
         }
         ]
       ],
+      'xcode_settings': {
+        'MACOSX_DEPLOYMENT_TARGET': '10.7',
+
+        'OTHER_CFLAGS': [
+          '-std=c++11',
+          '-stdlib=libc++'
+        ],
+      },
       'sources': [
         'src/node_php_embed.cc',
       ],
