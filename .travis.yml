@@ -129,7 +129,9 @@ before_script:
 script:
 - node --version
 - npm --version
-- if test -z "$EXTERNAL_LIBPHP" ; then npm install --build-from-source ; else npm install --build-from-source --libphp5=external ; fi
+- LIBCRYPT=''
+- if test "$TRAVIS_OS_NAME" = "osx"; then LIBCRYPT="--libcrypt=-lm" ; fi
+- if test -z "$EXTERNAL_LIBPHP" ; then npm install --build-from-source $LIBCRYPT; else npm install --build-from-source --libphp5=external ; fi
 - node-pre-gyp package testpackage
 - npm test
 - export PUBLISH=false

@@ -1,5 +1,7 @@
 {
   'includes': [ 'common-libphp5.gypi' ],
+  # these are libraries not needed on osx
+  'variables': { 'libcrypt%':'-lcrypt -lrt -lnsl' },
   'target_defaults': {
     'default_configuration': 'Release',
     'configurations': {
@@ -120,7 +122,7 @@
         'libraries': [
             '<(SHARED_INTERMEDIATE_DIR)/build/lib/libphp5.a',
             # these match `php-config --libs`
-            '-lcrypt -lresolv -lrt -lm -ldl -lnsl -lxml2'
+            '<(libcrypt) -lresolv -lm -ldl -lxml2'
         ]
       },
       'sources': [
