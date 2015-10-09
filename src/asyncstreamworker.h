@@ -1,6 +1,7 @@
 #ifndef ASYNCSTREAMWORKER_H
 #define ASYNCSTREAMWORKER_H
 #include <nan.h>
+#include <list>
 
 using namespace Nan;
 
@@ -12,7 +13,7 @@ namespace node_php_embed {
 /* abstract */ class AsyncStreamWorker : public Nan::AsyncWorker {
  public:
   explicit AsyncStreamWorker(Callback *callback_)
-      : AsyncWorker(callback_), asyncdata_(NULL), asyncsize_(0) {
+      : AsyncWorker(callback_), asyncdata_(), waitingForStream(false) {
     async = new uv_async_t;
     uv_async_init(
         uv_default_loop()
@@ -27,23 +28,47 @@ namespace node_php_embed {
   virtual ~AsyncStreamWorker() {
     uv_mutex_destroy(&async_lock);
 
-    if (asyncdata_) {
-      delete[] asyncdata_;
+    for (std::list<std::pair<char*,size_t>>::iterator it = asyncdata_.begin();
+         it != asyncdata_.end(); it++) {
+        delete[] it->first;
+    }
+    asyncdata_.clear();
+  }
+
+  void WorkComplete() {
+    uv_mutex_lock(&async_lock);
+    waitingForStream = !asyncdata_.empty();
+    uv_mutex_unlock(&async_lock);
+
+    if (!waitingForStream) {
+        Nan::AsyncWorker::WorkComplete();
+        ReallyDestroy();
+    } else {
+        // Queue another trip through WorkStream
+        uv_async_send(async);
     }
   }
 
   void WorkStream() {
+    std::list<std::pair<char*,size_t>> newData;
+    bool waiting;
+
     uv_mutex_lock(&async_lock);
-    char *data = asyncdata_;
-    size_t size = asyncsize_;
-    asyncdata_ = NULL;
+    newData.splice(newData.begin(), asyncdata_);
+    waiting = waitingForStream;
     uv_mutex_unlock(&async_lock);
 
-    // Dont send stream events after we've already completed.
-    if (callback) {
-        HandleStreamCallback(data, size);
+    for (std::list<std::pair<char*,size_t>>::iterator it = newData.begin();
+         it != newData.end(); it++) {
+        HandleStreamCallback(it->first, it->second);
+        delete[] it->first;
     }
-    delete[] data;
+
+    // If we were waiting for the stream to empty, perhaps it's time to
+    // invoke WorkComplete.
+    if (waiting) {
+        WorkComplete();
+    }
   }
 
   class ExecutionStream {
@@ -63,8 +88,13 @@ namespace node_php_embed {
   virtual void Execute(const ExecutionStream& stream) = 0;
   virtual void HandleStreamCallback(const char *data, size_t size) = 0;
 
-  virtual void Destroy() {
+  virtual void ReallyDestroy() {
+      // The AsyncClose_ method handles deleting `this`.
       uv_close(reinterpret_cast<uv_handle_t*>(async), AsyncClose_);
+  }
+  virtual void Destroy() {
+      /* do nothing -- we're going to trigger ReallyDestroy from
+       * WorkComplete */
   }
 
  private:
@@ -78,14 +108,9 @@ namespace node_php_embed {
     memcpy(new_data, data, size);
 
     uv_mutex_lock(&async_lock);
-    char *old_data = asyncdata_;
-    asyncdata_ = new_data;
-    asyncsize_ = size;
+    asyncdata_.push_back(std::pair<char*,size_t>(new_data, size));
     uv_mutex_unlock(&async_lock);
 
-    if (old_data) {
-      delete[] old_data;
-    }
     uv_async_send(async);
   }
 
@@ -104,8 +129,8 @@ namespace node_php_embed {
 
   uv_async_t *async;
   uv_mutex_t async_lock;
-  char *asyncdata_;
-  size_t asyncsize_;
+  std::list<std::pair<char*,size_t>> asyncdata_;
+  bool waitingForStream;
 };
 
 }

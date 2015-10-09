@@ -182,7 +182,6 @@ static void node_php_embed_ensure_init(void) {
     if (node_php_embed_inited) {
         return;
     }
-    printf("initing\n");
     node_php_embed_inited = true;
     TSRMLS_FETCH();
     char *argv[] = { };
