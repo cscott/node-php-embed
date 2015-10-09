@@ -8,6 +8,7 @@
 #include "macros.h"
 
 using namespace node_php_embed;
+static void node_php_embed_ensure_init(void);
 
 /* Per-thread storage for the module */
 ZEND_BEGIN_MODULE_GLOBALS(node_php_embed)
@@ -112,23 +113,30 @@ static int node_php_embed_ub_write(const char *str, unsigned int str_length TSRM
     return str_length;
 }
 
-NAN_METHOD(request) {
+NAN_METHOD(setIniPath) {
+    REQUIRE_ARGUMENT_STRING(0, iniPath);
+    if (php_embed_module.php_ini_path_override) {
+        delete[] php_embed_module.php_ini_path_override;
+    }
+    php_embed_module.php_ini_path_override = strdup(*iniPath);
+}
 
-    REQUIRE_ARGUMENTS(4);
-    REQUIRE_ARGUMENT_STRING(0, iniPath);//XXX too late?
-    REQUIRE_ARGUMENT_STRING(1, source);
+NAN_METHOD(request) {
+    REQUIRE_ARGUMENTS(3);
+    REQUIRE_ARGUMENT_STRING(0, source);
     if (!*source) {
         return Nan::ThrowTypeError("bad string");
     }
-    if (!info[2]->IsObject()) {
+    if (!info[1]->IsObject()) {
         return Nan::ThrowTypeError("stream expected");
     }
-    v8::Local<v8::Object> stream = info[2].As<v8::Object>();
-    if (!info[3]->IsFunction()) {
+    v8::Local<v8::Object> stream = info[1].As<v8::Object>();
+    if (!info[2]->IsFunction()) {
         return Nan::ThrowTypeError("callback expected");
     }
-    Nan::Callback *callback = new Nan::Callback(info[3].As<v8::Function>());
+    Nan::Callback *callback = new Nan::Callback(info[2].As<v8::Function>());
 
+    node_php_embed_ensure_init();
     Nan::AsyncQueueWorker(new PhpRequestWorker(callback, stream, v8::Isolate::GetCurrent(), *source));
 }
 
@@ -168,18 +176,33 @@ zend_module_entry node_php_embed_module_entry = {
 /** Node module housekeeping */
 static void ModuleShutdown(void *arg);
 
-NAN_MODULE_INIT(ModuleInit) {
+static bool node_php_embed_inited = false;
+static void node_php_embed_ensure_init(void) {
+    if (node_php_embed_inited) {
+        return;
+    }
+    printf("initing\n");
+    node_php_embed_inited = true;
     TSRMLS_FETCH();
     char *argv[] = { };
     int argc = 0;
-    php_embed_module.php_ini_ignore = true;
-    php_embed_module.ub_write = node_php_embed_ub_write;
     php_embed_init(argc, argv PTSRMLS_CC);
     // shutdown the initially-created request
     php_request_shutdown(NULL);
     zend_startup_module(&node_php_embed_module_entry);
     node::AtExit(ModuleShutdown, NULL);
+}
+
+NAN_MODULE_INIT(ModuleInit) {
+    php_embed_module.php_ini_path_override = NULL;
+    php_embed_module.php_ini_ignore = true;
+    php_embed_module.php_ini_ignore_cwd = true;
+    php_embed_module.ini_defaults = NULL;
+    php_embed_module.ub_write = node_php_embed_ub_write;
+    // Most of init will be lazily in node_php_embed_ensure_init()
+
     // Export functions
+    NAN_EXPORT(target, setIniPath);
     NAN_EXPORT(target, request);
 }
 
@@ -187,6 +210,9 @@ void ModuleShutdown(void *arg) {
     TSRMLS_FETCH();
     php_request_startup(TSRMLS_C);
     php_embed_shutdown(TSRMLS_CC);
+    if (php_embed_module.php_ini_path_override) {
+        delete[] php_embed_module.php_ini_path_override;
+    }
 }
 
 NODE_MODULE(php_embed, ModuleInit)
