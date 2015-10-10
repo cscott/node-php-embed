@@ -30,7 +30,7 @@
     "remote_path": "/cscott/node-php-embed/releases/download/{version}/"
   },
   "dependencies": {
-    "nan": "~2.0.9",
+    "nan": "~2.1.0",
     "node-pre-gyp": "~0.6.11",
     "prfun": "~2.1.1"
   },
