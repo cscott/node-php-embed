@@ -93,10 +93,6 @@ matrix:
        compiler: clang
        env: NODE_VERSION="0.8.28" # node abi 1
 
-env:
-  global:
-   - secure: "p/3rptxI8KJGhU1omrUu2WRClXhVwbRoWC3YfjaQr6rDMUMkmARc4tWT1UnL6e7bKAG2vKO9ko1d3meT6rHZL8ma/I5z9tvm3gefxLdIeV1I93JNX3nCLNkCDdIOcHEFibr1R8qsrcLqTaVoLMBhnNxFEvUFLbebD3ArFBy0zxY="
-
 before_install:
 - export PUBLISHABLE=${PUBLISHABLE:-true}
 - if test "$TRAVIS_OS_NAME $CC" = "linux gcc" ; then
