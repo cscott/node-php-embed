@@ -15,6 +15,8 @@ addons:
     - clang-3.5
     - gcc-5-multilib
     - g++-5-multilib
+    - linux-libc-dev:i386
+    - libxml2-dev:i386
 
 ## don't re-build for tags so that [publish binary] is not re-run
 ## https://github.com/travis-ci/travis-ci/issues/1532

@@ -16,7 +16,7 @@ npm install request@2.64.0
 
 # These steps are taken care on in .travis.yml now.
 #sudo apt-get update
-#sudo apt-get -y install gcc-multilib g++-multilib
+#sudo apt-get -y install gcc-5-multilib g++-5-multilib
 
 # node v0.8 and above provide pre-built 32 bit and 64 bit binaries
 # so here we use the 32 bit ones to also test 32 bit builds
@@ -40,7 +40,7 @@ if [ `node -e "console.log(process.arch)"` != "ia32" ]; then
 fi
 # install 32 bit compiler toolchain and X11
 # test source compile in 32 bit mode
-CC=gcc-4.6 CXX=g++-4.6 npm install --build-from-source
+npm install --build-from-source
 node-pre-gyp package testpackage
 npm test
 npm run gh-publish
