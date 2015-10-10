@@ -8,7 +8,36 @@ provide interoperability between PHP and JavaScript code.
 
 # USAGE
 
+```js
+var path = require('path');
+var php = require('php-embed');
+php.request({
+  file: path.join(__dirname, 'hello.php'),
+  stream: process.stdout
+}).then(function(v) {
+  console.log('php is done and stream flushed.');
+});
+```
+
 # API
+
+## php.request(options, [callback])
+Triggers a PHP "request", and returns a `Promise` which will be
+resolved when the request completes.  If you prefer to use callbacks,
+you can ignore the return value and pass a callback as the second
+parameter.
+*   `options`: a hash containing various parameters for the request.
+    Either `source` or `file` is mandatory; the rest are optional.
+    - `source`:
+        Specifies a source string to evaluate in the request context.
+    - `file`:
+        Specifies a PHP file to evaluate in the request context.
+    - `stream`:
+        A node `stream.Writable` to accept output from the PHP request.
+        If not specified, defaults to `process.stdout`.
+*   `callback` *(optional)*: A standard node callback.  The first argument
+    is non-null if an exception was raised. The second argument is the
+    result of the PHP evaluation, converted to a string.
 
 # INSTALLING
 
