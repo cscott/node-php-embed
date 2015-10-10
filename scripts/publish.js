@@ -11,8 +11,10 @@ var package_json = require('../package.json');
 var GITHUB_API = "https://api.github.com";
 var TOKEN = process.env.GITHUB_TOKEN;
 
-var OWNER = "cscott";
-var REPO = "node-icu-bidi";
+var remote_path_parts = package_json.binary.remote_path
+  .replace(/^\/|\/$/, '').split('/');
+var OWNER = remote_path_parts[0];
+var REPO = remote_path_parts[1];
 var TAG = package_json.version;
 
 var NODE_PRE_GYP = path.join(__dirname, '..', 'node_modules', '.bin', 'node-pre-gyp');
