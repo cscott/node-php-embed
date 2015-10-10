@@ -30,7 +30,7 @@ matrix:
       env: NODE_VERSION="iojs-3.3.1"
     # segfault on amd64 (but not on x86)
     - os: linux
-      env: NODE_VERSION="iojs-3.1.0"
+      env: NODE_VERSION="iojs-3.1.0" PUBLISHABLE=false
   include:
      # Linux
      - os: linux
@@ -38,13 +38,13 @@ matrix:
        env: NODE_VERSION="4.1.2" # node abi 46
      - os: linux
        compiler: clang
-       env: NODE_VERSION="4.0.0"
+       env: NODE_VERSION="4.0.0" PUBLISHABLE=false
      - os: linux
        compiler: clang
        env: NODE_VERSION="iojs-3.3.1" # node abi 45
      - os: linux
        compiler: clang
-       env: NODE_VERSION="iojs-3.1.0"
+       env: NODE_VERSION="iojs-3.1.0" PUBLISHABLE=false
      - os: linux
        compiler: clang
        env: NODE_VERSION="iojs-2.4.0" PUBLISHABLE=false
@@ -96,11 +96,6 @@ matrix:
 env:
   global:
    - secure: "p/3rptxI8KJGhU1omrUu2WRClXhVwbRoWC3YfjaQr6rDMUMkmARc4tWT1UnL6e7bKAG2vKO9ko1d3meT6rHZL8ma/I5z9tvm3gefxLdIeV1I93JNX3nCLNkCDdIOcHEFibr1R8qsrcLqTaVoLMBhnNxFEvUFLbebD3ArFBy0zxY="
-
-#matrix:
-#  allow_failures:
-#   # v8 API changed in 0.11, needs update
-#   - env: NODE_VERSION="0.11"
 
 before_install:
 - export PUBLISHABLE=${PUBLISHABLE:-true}
