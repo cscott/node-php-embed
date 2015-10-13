@@ -6,6 +6,7 @@
 #include <ext/standard/info.h>
 
 #include "node_php_embed.h"
+#include "node_php_jsobject_class.h"
 #include "macros.h"
 
 using namespace node_php_embed;
@@ -157,11 +158,16 @@ static void node_php_embed_globals_dtor(zend_node_php_embed_globals *node_php_em
     // no clean up required
 }
 
+PHP_MINIT_FUNCTION(node_php_embed) {
+    PHP_MINIT(node_php_jsobject_class)(INIT_FUNC_ARGS_PASSTHRU);
+    return SUCCESS;
+}
+
 zend_module_entry node_php_embed_module_entry = {
     STANDARD_MODULE_HEADER,
     "node-php-embed", /* extension name */
     NULL, /* function entries */
-    NULL, /* MINIT */
+    PHP_MINIT(node_php_embed), /* MINIT */
     NULL, /* MSHUTDOWN */
     NULL, /* RINIT */
     NULL, /* RSHUTDOWN */

@@ -29,6 +29,7 @@
       },
       'sources': [
         'src/node_php_embed.cc',
+        'src/node_php_jsobject_class.cc',
       ],
     },
     {
