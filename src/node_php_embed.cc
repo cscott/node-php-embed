@@ -1,5 +1,5 @@
 #include <nan.h>
-#include "asyncstreamworker.h"
+#include "asynclockworker.h"
 
 #include <sapi/embed/php_embed.h>
 #include <Zend/zend_exceptions.h>
@@ -14,7 +14,7 @@ static void node_php_embed_ensure_init(void);
 
 /* Per-thread storage for the module */
 ZEND_BEGIN_MODULE_GLOBALS(node_php_embed)
-    const AsyncStreamWorker::ExecutionStream *stream;
+    const AsyncLockWorker::ExecutionLockRequest *execLockRequest;
 ZEND_END_MODULE_GLOBALS(node_php_embed)
 
 ZEND_DECLARE_MODULE_GLOBALS(node_php_embed);
@@ -28,14 +28,13 @@ ZEND_DECLARE_MODULE_GLOBALS(node_php_embed);
 
 // XXX async progress worker doesn't guarantee receipt of messages;
 // we need to rewrite it to use guaranteed delivery.
-class node_php_embed::PhpRequestWorker : public AsyncStreamWorker {
+class node_php_embed::PhpRequestWorker : public AsyncLockWorker {
 public:
     PhpRequestWorker(Nan::Callback *callback, v8::Local<v8::Object> stream, v8::Isolate *isolate, char *source)
-        : AsyncStreamWorker(callback), result_(NULL) {
+        : AsyncLockWorker(callback, isolate), result_(NULL) {
         size_t size = strlen(source) + 1;
         source_ = new char[size];
         memcpy(source_, source, size);
-        isolate_ = isolate;
         SaveToPersistent("stream", stream);
     }
     ~PhpRequestWorker() {
@@ -48,14 +47,14 @@ public:
     // Executed inside the PHP thread.  It is not safe to access V8 or
     // V8 data structures here, so everything we need for input and output
     // should go on `this`.
-    void Execute(const ExecutionStream &stream) {
+    void Execute(const ExecutionLockRequest &elr) {
         zval *retval;
         TSRMLS_FETCH();
         if (php_request_startup(TSRMLS_C) == FAILURE) {
             Nan::ThrowError("can't create request");
             return;
         }
-        NODE_PHP_EMBED_G(stream) = &stream;
+        NODE_PHP_EMBED_G(execLockRequest) = &elr;
         ALLOC_INIT_ZVAL(retval);
         zend_first_try {
             if (FAILURE == zend_eval_string_ex(source_, retval, "request", true TSRMLS_CC)) {
@@ -74,20 +73,8 @@ public:
             SetErrorMessage("<bailout>");
         } zend_end_try();
         zval_dtor(retval);
-        NODE_PHP_EMBED_G(stream) = NULL;
+        NODE_PHP_EMBED_G(execLockRequest) = NULL;
         php_request_shutdown(NULL);
-    }
-    // This is again handled in the main loop.
-    void HandleStreamCallback(const char *data, size_t size) {
-        Nan::HandleScope scope;
-        v8::Local<v8::Object> stream = GetFromPersistent("stream")
-            .As<v8::Object>();
-        v8::Local<v8::Value> write = GET_PROPERTY(stream, "write");
-        if (!write->IsFunction()) { return; /* silent failure */ }
-        v8::Local<v8::Value> argv[] = {
-            Nan::CopyBuffer(data, size).ToLocalChecked()
-        };
-        Nan::CallAsFunction(write.As<v8::Object>(), stream, 1, argv);
     }
     // Executed when the async work is complete.
     // This function will be run inside the main event loop
@@ -103,16 +90,44 @@ public:
 private:
     char *source_;
     char *result_;
-    v8::Isolate *isolate_;
 };
 
 /* PHP extension metadata */
 
 static int node_php_embed_ub_write(const char *str, unsigned int str_length TSRMLS_DC) {
     // Fetch the ExecutionStream object for this thread.
-    const AsyncStreamWorker::ExecutionStream *stream = NODE_PHP_EMBED_G(stream);
-    stream->Send(str, str_length);
+    const AsyncLockWorker::ExecutionLockRequest *elr = NODE_PHP_EMBED_G(execLockRequest);
+    {
+        WaitForNode wait(elr);
+        // execute in isolate
+        Nan::HandleScope scope;
+        v8::Local<v8::Object> stream =
+            elr->GetWorker()->GetFromPersistent("stream")
+            .As<v8::Object>();
+        v8::Local<v8::Value> write = GET_PROPERTY(stream, "write");
+        if (!write->IsFunction()) { return str_length; /* silent failure */ }
+        // XXX core dump here, because Node::CopyBuffer tries to access
+        // the node environment from the "wrong" thread.
+        v8::Local<v8::Value> argv[] = {
+            Nan::CopyBuffer(str, str_length).ToLocalChecked()
+        };
+        Nan::CallAsFunction(write.As<v8::Object>(), stream, 1, argv);
+    }
     return str_length;
+}
+
+static void node_php_embed_flush(void *server_context) {
+    // XXX IMPLEMENT ME
+    // do a stream->Send('',0) and then wait for the queue to be serviced
+    // before returning?
+}
+
+static void node_php_embed_register_server_variables(zval *track_vars_array TSRMLS_DC)
+{
+    // Fetch the ExecutionStream object for this thread.
+    const AsyncLockWorker::ExecutionLockRequest *elr = NODE_PHP_EMBED_G(execLockRequest);
+    php_import_environment_variables(track_vars_array TSRMLS_CC);
+    php_register_variable_safe("PHP_SELF", "CSA", 3, track_vars_array TSRMLS_CC);
 }
 
 NAN_METHOD(setIniPath) {
@@ -152,7 +167,7 @@ PHP_MINFO_FUNCTION(node_php_embed) {
 }
 
 static void node_php_embed_globals_ctor(zend_node_php_embed_globals *node_php_embed_globals TSRMLS_DC) {
-    node_php_embed_globals->stream = NULL;
+    node_php_embed_globals->execLockRequest = NULL;
 }
 static void node_php_embed_globals_dtor(zend_node_php_embed_globals *node_php_embed_globals TSRMLS_DC) {
     // no clean up required
@@ -205,7 +220,9 @@ NAN_MODULE_INIT(ModuleInit) {
     php_embed_module.php_ini_ignore_cwd = true;
     php_embed_module.ini_defaults = NULL;
     php_embed_module.ub_write = node_php_embed_ub_write;
-    // Most of init will be lazily in node_php_embed_ensure_init()
+    php_embed_module.flush = node_php_embed_flush;
+    php_embed_module.register_server_variables = node_php_embed_register_server_variables;
+    // Most of init will be done lazily in node_php_embed_ensure_init()
 
     // Export functions
     NAN_EXPORT(target, setIniPath);
