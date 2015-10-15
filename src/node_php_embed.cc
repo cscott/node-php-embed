@@ -36,7 +36,6 @@ public:
         source_ = new char[size];
         memcpy(source_, source, size);
         SaveToPersistent("stream", stream);
-        env_ = node::Environment::GetCurrent(isolate);
     }
     ~PhpRequestWorker() {
         delete[] source_;
@@ -91,7 +90,6 @@ public:
 private:
     char *source_;
     char *result_;
-    node::Environment *env_;
 };
 
 /* PHP extension metadata */
