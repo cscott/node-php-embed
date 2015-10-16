@@ -1,5 +1,4 @@
 #include <nan.h>
-#include "asynclockworker.h"
 
 #include <sapi/embed/php_embed.h>
 #include <Zend/zend_exceptions.h>
@@ -7,6 +6,11 @@
 
 #include "node_php_embed.h"
 #include "node_php_jsobject_class.h"
+
+#include "asyncmessageworker.h"
+#include "messages.h"
+#include "values.h"
+
 #include "macros.h"
 
 using namespace node_php_embed;
@@ -14,7 +18,7 @@ static void node_php_embed_ensure_init(void);
 
 /* Per-thread storage for the module */
 ZEND_BEGIN_MODULE_GLOBALS(node_php_embed)
-    const AsyncLockWorker::ExecutionLockRequest *execLockRequest;
+    AsyncMessageWorker::MessageChannel *messageChannel;
 ZEND_END_MODULE_GLOBALS(node_php_embed)
 
 ZEND_DECLARE_MODULE_GLOBALS(node_php_embed);
@@ -26,16 +30,14 @@ ZEND_DECLARE_MODULE_GLOBALS(node_php_embed);
 # define NODE_PHP_EMBED_G(v) (node_php_embed_globals.v)
 #endif
 
-// XXX async progress worker doesn't guarantee receipt of messages;
-// we need to rewrite it to use guaranteed delivery.
-class node_php_embed::PhpRequestWorker : public AsyncLockWorker {
+class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
 public:
-    PhpRequestWorker(Nan::Callback *callback, v8::Local<v8::Object> stream, v8::Isolate *isolate, char *source)
-        : AsyncLockWorker(callback, isolate), result_(NULL) {
+    PhpRequestWorker(Nan::Callback *callback, v8::Local<v8::Object> stream, char *source)
+        : AsyncMessageWorker(callback), result_(NULL) {
         size_t size = strlen(source) + 1;
         source_ = new char[size];
         memcpy(source_, source, size);
-        SaveToPersistent("stream", stream);
+        streamId_ = IdForJsObj(stream);
     }
     ~PhpRequestWorker() {
         delete[] source_;
@@ -43,21 +45,23 @@ public:
             delete[] result_;
         }
     }
+    uint32_t GetStreamId() { return streamId_; }
 
     // Executed inside the PHP thread.  It is not safe to access V8 or
     // V8 data structures here, so everything we need for input and output
     // should go on `this`.
-    void Execute(const ExecutionLockRequest &elr) {
-        zval *retval;
+    void Execute(MessageChannel &messageChannel) {
         TSRMLS_FETCH();
         if (php_request_startup(TSRMLS_C) == FAILURE) {
             Nan::ThrowError("can't create request");
             return;
         }
-        NODE_PHP_EMBED_G(execLockRequest) = &elr;
-        ALLOC_INIT_ZVAL(retval);
+        NODE_PHP_EMBED_G(messageChannel) = &messageChannel;
+        {
+        ZVal retval;
         zend_first_try {
-            if (FAILURE == zend_eval_string_ex(source_, retval, "request", true TSRMLS_CC)) {
+            char eval_msg[] = { "request" }; // shows up in error messages
+            if (FAILURE == zend_eval_string_ex(source_, *retval, eval_msg, true TSRMLS_CC)) {
                 if (EG(exception)) {
                     zend_clear_exception(TSRMLS_C);
                     SetErrorMessage("<threw exception");
@@ -65,15 +69,15 @@ public:
                     SetErrorMessage("<eval failure>");
                 }
             }
-            convert_to_string(retval);
-            result_ = new char[Z_STRLEN_P(retval) + 1];
-            memcpy(result_, Z_STRVAL_P(retval), Z_STRLEN_P(retval));
-            result_[Z_STRLEN_P(retval)] = 0;
+            convert_to_string(*retval);
+            result_ = new char[Z_STRLEN_P(*retval) + 1];
+            memcpy(result_, Z_STRVAL_P(*retval), Z_STRLEN_P(*retval));
+            result_[Z_STRLEN_P(*retval)] = 0;
         } zend_catch {
             SetErrorMessage("<bailout>");
         } zend_end_try();
-        zval_dtor(retval);
-        NODE_PHP_EMBED_G(execLockRequest) = NULL;
+        }
+        NODE_PHP_EMBED_G(messageChannel) = NULL;
         php_request_shutdown(NULL);
     }
     // Executed when the async work is complete.
@@ -90,43 +94,42 @@ public:
 private:
     char *source_;
     char *result_;
+    uint32_t streamId_;
 };
 
 /* PHP extension metadata */
 
 static int node_php_embed_ub_write(const char *str, unsigned int str_length TSRMLS_DC) {
     // Fetch the ExecutionStream object for this thread.
-    const AsyncLockWorker::ExecutionLockRequest *elr = NODE_PHP_EMBED_G(execLockRequest);
-    {
-        WaitForNode wait(elr);
-        // execute in isolate
-        Nan::HandleScope scope;
-        v8::Local<v8::Object> stream =
-            elr->GetWorker()->GetFromPersistent("stream")
-            .As<v8::Object>();
-        v8::Local<v8::Value> write = GET_PROPERTY(stream, "write");
-        if (!write->IsFunction()) { return str_length; /* silent failure */ }
-        // XXX core dump here, because Node::CopyBuffer tries to access
-        // the node environment from the "wrong" thread.
-        v8::Local<v8::Value> argv[] = {
-            Nan::CopyBuffer(str, str_length).ToLocalChecked()
-        };
-        Nan::CallAsFunction(write.As<v8::Object>(), stream, 1, argv);
-    }
+    AsyncMessageWorker::MessageChannel *messageChannel = NODE_PHP_EMBED_G(messageChannel);
+    uint32_t streamId = ((PhpRequestWorker*) messageChannel->GetWorker())
+        ->GetStreamId();
+    zval buf;
+    INIT_ZVAL(buf); ZVAL_STRINGL(&buf, str, str_length, 0);
+    zval *args[] = { &buf };
+    // XXX, would be better to pass this as a buffer, not a string.
+    JsInvokeMethodMsg msg(messageChannel, streamId, "write", 1, args);
+    messageChannel->Send(&msg);
+    // XXX wait for response
+    msg.WaitForResponse(); // XXX optional?
+    // now return value is in msg.retval_ or msg.exception_ but
+    // we'll ignore that (FIXME?)
     return str_length;
 }
 
 static void node_php_embed_flush(void *server_context) {
     // XXX IMPLEMENT ME
-    // do a stream->Send('',0) and then wait for the queue to be serviced
-    // before returning?
+    // do a JsInvokeAsyncMethod of stream.write, which should add a callback
+    // and block until it is handled.
 }
 
 static void node_php_embed_register_server_variables(zval *track_vars_array TSRMLS_DC)
 {
     // Fetch the ExecutionStream object for this thread.
-    const AsyncLockWorker::ExecutionLockRequest *elr = NODE_PHP_EMBED_G(execLockRequest);
+    AsyncMessageWorker::MessageChannel *messageChannel = NODE_PHP_EMBED_G(messageChannel);
     php_import_environment_variables(track_vars_array TSRMLS_CC);
+    // XXX put PHP-wrapped version of node context object in the
+    // $SERVER variable.
     php_register_variable_safe("PHP_SELF", "CSA", 3, track_vars_array TSRMLS_CC);
 }
 
@@ -154,7 +157,7 @@ NAN_METHOD(request) {
     Nan::Callback *callback = new Nan::Callback(info[2].As<v8::Function>());
 
     node_php_embed_ensure_init();
-    Nan::AsyncQueueWorker(new PhpRequestWorker(callback, stream, v8::Isolate::GetCurrent(), *source));
+    Nan::AsyncQueueWorker(new PhpRequestWorker(callback, stream, *source));
 }
 
 /** PHP module housekeeping */
@@ -167,7 +170,7 @@ PHP_MINFO_FUNCTION(node_php_embed) {
 }
 
 static void node_php_embed_globals_ctor(zend_node_php_embed_globals *node_php_embed_globals TSRMLS_DC) {
-    node_php_embed_globals->execLockRequest = NULL;
+    node_php_embed_globals->messageChannel = NULL;
 }
 static void node_php_embed_globals_dtor(zend_node_php_embed_globals *node_php_embed_globals TSRMLS_DC) {
     // no clean up required
