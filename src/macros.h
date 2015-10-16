@@ -82,4 +82,24 @@ static NAN_INLINE v8::Local<v8::String> CAST_STRING(v8::Local<v8::Value> v, v8::
     return scope.Escape(v->IsString() ? Nan::To<v8::String>(v).FromMaybe(defaultValue) : defaultValue);
 }
 
+/* Zend helpers */
+#if ZEND_MODULE_API_NO >= 20100409
+# define ZEND_HASH_KEY_DC , const zend_literal *key
+# define ZEND_HASH_KEY_CC , key
+# define ZEND_HASH_KEY_NULL , NULL
+#else
+# define ZEND_HASH_KEY_DC
+# define ZEND_HASH_KEY_CC
+# define ZEND_HASH_KEY_NULL
+#endif
+
+/* method signatures of zend_update_property and zend_read_property were
+ * declared as 'char *' instead of 'const char *' before PHP 5.4 */
+#if ZEND_MODULE_API_NO >= 20100525
+# define ZEND_CONST_CHAR
+#else
+# define ZEND_CONST_CHAR (char *)
+#endif
+
+
 #endif
