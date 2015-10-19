@@ -140,7 +140,7 @@ class PhpGetPropertyMsg : public MessageToPhp {
         : MessageToPhp(m), obj_(m, obj), name_(m, name) { }
  protected:
     virtual void InPhp(ObjectMapper *m TSRMLS_DC) {
-        ZVal obj(ZEND_FILE_LINE_C), name(ZEND_FILE_LINE_C);
+        ZVal obj{ZEND_FILE_LINE_C}, name{ZEND_FILE_LINE_C};
         zval *r;
         zend_class_entry *ce;
         zend_property_info *property_info;
