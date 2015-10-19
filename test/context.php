@@ -7,4 +7,6 @@ var_dump($c->d);
 var_dump($c->e);
 var_dump($c->f);
 var_dump($c->g->f);
+var_dump($c->h->name);
+var_dump($c->i);
 ?>

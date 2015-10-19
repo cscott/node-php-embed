@@ -111,6 +111,9 @@ class JsInvokeMethodMsg : public MessageToJs {
         name_.SetOwnedString(name, strlen(name));
     }
     virtual ~JsInvokeMethodMsg() { delete[] argv_; }
+    // this is a bit of a hack to allow constructing a call with a Buffer
+    // as an argument.
+    Value &Argv(int n) { return argv_[n]; }
  protected:
     virtual void InJs(ObjectMapper *m) {
         Nan::MaybeLocal<v8::Object> o = Nan::To<v8::Object>(obj_.ToJs(m));
