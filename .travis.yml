@@ -26,18 +26,15 @@ addons:
 
 
 matrix:
-  allow_failures:
-    # segfault on amd64 (but not on x86)
-    - os: linux
-      env: NODE_VERSION="iojs-3.3.1"
-    # segfault on amd64 (but not on x86)
-    - os: linux
-      env: NODE_VERSION="iojs-3.1.0" PUBLISHABLE=false
   include:
      # Linux
      - os: linux
        compiler: clang
        env: NODE_VERSION="4.1.2" # node abi 46
+     # Test in release mode, not just debug mode.
+     - os: linux
+       compiler: clang
+       env: NODE_VERSION="4.1.2" PUBLISHABLE=false RELEASE=true
      - os: linux
        compiler: clang
        env: NODE_VERSION="4.0.0" PUBLISHABLE=false
@@ -97,6 +94,9 @@ matrix:
 
 before_install:
 - export PUBLISHABLE=${PUBLISHABLE:-true}
+- export RELEASE=${RELEASE:-false}
+# ensure that published builds are not built in debug mode
+- if test "$PUBLISHABLE" = "true" ; then if scripts/validate_tag.sh --check ; then RELEASE=true ; fi ; fi
 - if test "$TRAVIS_OS_NAME $CC" = "linux gcc" ; then
     export CXX="g++-5" ;
     export CC="gcc-5" ;
@@ -134,7 +134,9 @@ script:
 - npm --version
 - LIBCRYPT=''
 - if test "$TRAVIS_OS_NAME" = "osx"; then LIBCRYPT="--libcrypt=-liconv" ; fi
-- if test -z "$EXTERNAL_LIBPHP" ; then npm install --build-from-source $LIBCRYPT; else npm install --build-from-source --libphp5=external ; fi
+- DEBUG=''
+- if test "$RELEASE" = "false"; then DEBUG='--debug' ; fi
+- if test -z "$EXTERNAL_LIBPHP" ; then npm install --build-from-source $LIBCRYPT $DEBUG; else npm install --build-from-source --libphp5=external $DEBUG; fi
 - node-pre-gyp package testpackage
 - npm test
 - export PUBLISH=false

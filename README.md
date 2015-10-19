@@ -80,6 +80,14 @@ install the `-dev` package with your package manager, e.g.
 `apt-get install libphp5-embed php5-dev` for
 Debian/Ubuntu.
 
+Developers hacking on the code will probably want to use:
+
+    node-pre-gyp --debug build
+
+Passing the `--debug` flag to `node-pre-gyp` enables memory checking, and
+the `build` command (instead of `rebuild`) avoids rebuilding `libphp5`
+from scratch after every change.
+
 # TESTING
 
 [mocha](https://github.com/visionmedia/mocha) is required to run unit tests.

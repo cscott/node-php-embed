@@ -83,6 +83,7 @@
                 '<(SHARED_INTERMEDIATE_DIR)/php-<@(libphp5_version)/',
                 '--enable-maintainer-zts', '--enable-embed=static',
                 '--prefix', '<(SHARED_INTERMEDIATE_DIR)/build',
+                '--enable-opcache=static',
                 # turn off some unnecessary bits
                 '--disable-cli', '--disable-cgi',
                 '<@(configure_options)'
@@ -129,6 +130,7 @@
       'link_settings': {
         'libraries': [
             '<(SHARED_INTERMEDIATE_DIR)/build/lib/libphp5.a',
+            '<(SHARED_INTERMEDIATE_DIR)/php-<@(libphp5_version)/modules/opcache.a',
             # these match `php-config --libs`
             '<(libcrypt) -lresolv -lm -ldl -lxml2'
         ]

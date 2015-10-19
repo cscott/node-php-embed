@@ -13,6 +13,18 @@ var rest = process.argv.slice(0);
 //console.log(os.arch());
 //console.log(process.version, process.arch, process.config.variables.target_arch);
 
+// HACK!  Can't figure out how to get libphp5.gyp to apply these options
+// "properly".
+switch (process.env.BUILDTYPE || 'Release') {
+case 'Debug':
+	rest.push('--enable-debug');
+	break;
+default:
+case 'Release':
+	rest.push('--enable-release');
+	break;
+}
+// Fixup CFLAGS
 if (process.config.variables.target_arch !== 'ia32') {
     // needed for x86_64
     rest.push('CFLAGS=-fPIC');
