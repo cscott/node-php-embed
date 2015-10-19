@@ -28,7 +28,7 @@ class JsHasPropertyMsg : public MessageToJs {
     Value member_;
     int has_set_exists_;
 public:
-    JsHasPropertyMsg(ObjectMapper *m, uint32_t objId, zval *member, int has_set_exists)
+    JsHasPropertyMsg(ObjectMapper *m, objid_t objId, zval *member, int has_set_exists)
         : MessageToJs(m), object_(), member_(m, member),
           has_set_exists_(has_set_exists) {
         object_.SetJsObject(objId);
@@ -105,7 +105,7 @@ class JsReadPropertyMsg : public MessageToJs {
     Value member_;
     int type_;
 public:
-    JsReadPropertyMsg(ObjectMapper* m, uint32_t objId, zval *member, int type)
+    JsReadPropertyMsg(ObjectMapper* m, objid_t objId, zval *member, int type)
         : MessageToJs(m), object_(), member_(m, member), type_(type) {
         object_.SetJsObject(objId);
     }
@@ -130,7 +130,7 @@ protected:
 };
 
 static zval *node_php_jsobject_read_property(zval *object, zval *member, int type ZEND_HASH_KEY_DC TSRMLS_DC) {
-    ZVal retval;
+    ZVal retval(ZEND_FILE_LINE_C);
     if (Z_TYPE_P(member) != IS_STRING) {
         return retval.Escape();
     }
@@ -141,7 +141,7 @@ static zval *node_php_jsobject_read_property(zval *object, zval *member, int typ
     msg.WaitForResponse();
     // ok, result is in msg.retval_ or msg.exception_
     if (msg.HasException()) { msg.retval_.SetNull(); /* sigh */ }
-    msg.retval_.ToPhp(obj->channel, *retval TSRMLS_CC);
+    msg.retval_.ToPhp(obj->channel, retval TSRMLS_CC);
     return retval.Escape();
 }
 
@@ -168,6 +168,9 @@ static void node_php_jsobject_free_storage(void *object, zend_object_handle hand
 
     // XXX after we ensure that only one php wrapper for a given js id
     // is created, then we could deregister the id on _free().
+    // XXX actually, we need to send a message to the JS side first
+    // to prevent a race, since the same JS object might get used in
+    // another JS->PHP call first, which would revive the PHP-side wrapper.
 
     efree(object);
 }
@@ -186,14 +189,14 @@ static zend_object_value node_php_jsobject_new(zend_class_entry *ce TSRMLS_DC) {
     return retval;
 }
 
-void node_php_embed::node_php_jsobject_create(zval *res, ObjectMapper *mapper, uint32_t id TSRMLS_DC) {
+void node_php_embed::node_php_jsobject_create(zval *res, JsMessageChannel *channel, objid_t id TSRMLS_DC) {
     node_php_jsobject *c;
 
     object_init_ex(res, php_ce_jsobject);
 
     c = (node_php_jsobject *) zend_object_store_get_object(res TSRMLS_CC);
 
-    c->channel = static_cast<JsMessageChannel *>(mapper);
+    c->channel = channel;
     c->id = id;
 #if 0
     c->flags = flags;

@@ -7,19 +7,21 @@ extern "C" {
 #include "Zend/zend.h"
 }
 
+#include "values.h" /* for objid_t */
+
 namespace node_php_embed {
 
 class JsMessageChannel;
-class ObjectMapper;
 
 struct node_php_jsobject {
     zend_object std;
     JsMessageChannel *channel;
-    uint32_t id;
+    objid_t id;
 };
 
-/* Create a PHP proxy for a JS object */
-void node_php_jsobject_create(zval *res, ObjectMapper *mapper, uint32_t id TSRMLS_DC);
+/* Create a PHP proxy for a JS object.  res should be allocated & inited,
+ * and it is owned by the caller. */
+void node_php_jsobject_create(zval *res, JsMessageChannel *channel, uint32_t id TSRMLS_DC);
 
 }
 
