@@ -60,7 +60,14 @@ class ZVal : public NonAssignable {
     // Support a PHP calling convention where the actual zval object
     // is owned by the caller, but the contents are transferred to the
     // callee.
-    inline zval * Transfer() { transferred=true; return zvalp; }
+    inline zval * Transfer(TSRMLS_D) {
+        if (IsObject()) {
+            zend_objects_store_add_ref(zvalp TSRMLS_CC);
+        } else {
+            transferred=true;
+        }
+        return zvalp;
+    }
     inline zval * operator*() const { return Ptr(); } // shortcut
     inline int Type() { return Z_TYPE_P(zvalp); }
     inline bool IsNull() { return Type() == IS_NULL; }
@@ -180,10 +187,15 @@ class ZVal : public NonAssignable {
         // an "owned string", will copy data on creation and free it on delete.
     public:
         explicit OStr(const char *data, std::size_t length)
-            : Str(estrndup(data, length+1), length) { }
+            : Str(NULL, length) {
+            char *ndata = new char[length+1];
+            memcpy(ndata, data, length);
+            ndata[length] = 0;
+            data_ = ndata;
+        }
         virtual ~OStr() {
             if (data_) {
-                efree(const_cast<char*>(data_));
+                delete[] data_;
             }
         }
     };

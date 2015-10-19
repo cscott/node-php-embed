@@ -13,6 +13,8 @@ extern "C" {
 #include "values.h"
 #include "macros.h"
 
+#define USE_MAGIC_ISSET 0
+
 using namespace node_php_embed;
 
 /* Class Entries */
@@ -81,6 +83,36 @@ protected:
     }
 };
 
+#if USE_MAGIC_ISSET
+
+PHP_METHOD(JsObject, __isset) {
+    zval *member;
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z/", &member) == FAILURE) {
+        zend_throw_exception(
+            zend_exception_get_default(TSRMLS_C),
+            "bad property name for __isset", 0 TSRMLS_CC);
+        return;
+    }
+    convert_to_string(member);
+    node_php_jsobject *obj = (node_php_jsobject *)
+        zend_object_store_get_object(this_ptr TSRMLS_CC);
+    JsHasPropertyMsg msg(obj->channel, obj->id, member, 0);
+    obj->channel->Send(&msg);
+    msg.WaitForResponse();
+    // ok, result is in msg.retval_ or msg.exception_
+    if (msg.HasException()) {
+         zend_throw_exception_ex(
+            zend_exception_get_default(TSRMLS_C), 0 TSRMLS_CC,
+            "JS exception thrown during __isset of \"%*s\"",
+            Z_STRLEN_P(member), Z_STRVAL_P(member));
+        return;
+    }
+    RETURN_BOOL(msg.retval_.AsBool());
+}
+
+#else
+// By overriding has_property we can implement property_exists correctly,
+// and also handle empty arrays.
 static int node_php_jsobject_has_property(zval *object, zval *member, int has_set_exists ZEND_HASH_KEY_DC TSRMLS_DC) {
     /* param has_set_exists:
      * 0 (has) whether property exists and is not NULL  - isset()
@@ -99,6 +131,7 @@ static int node_php_jsobject_has_property(zval *object, zval *member, int has_se
     if (msg.HasException()) { return false; /* sigh */ }
     return msg.retval_.AsBool();
 }
+#endif /* USE_MAGIC_ISSET */
 
 class JsReadPropertyMsg : public MessageToJs {
     Value object_;
@@ -129,22 +162,29 @@ protected:
     }
 };
 
-static zval *node_php_jsobject_read_property(zval *object, zval *member, int type ZEND_HASH_KEY_DC TSRMLS_DC) {
-    ZVal retval(ZEND_FILE_LINE_C);
-    if (Z_TYPE_P(member) != IS_STRING) {
-        return retval.Escape();
+
+PHP_METHOD(JsObject, __get) {
+    zval *member;
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z/", &member) == FAILURE) {
+        zend_throw_exception(zend_exception_get_default(TSRMLS_C), "bad property name", 0 TSRMLS_CC);
+        return;
     }
+    convert_to_string(member);
     node_php_jsobject *obj = (node_php_jsobject *)
-        zend_object_store_get_object(object TSRMLS_CC);
-    JsReadPropertyMsg msg(obj->channel, obj->id, member, type);
+        zend_object_store_get_object(this_ptr TSRMLS_CC);
+    JsReadPropertyMsg msg(obj->channel, obj->id, member, 0);
     obj->channel->Send(&msg);
     msg.WaitForResponse();
     // ok, result is in msg.retval_ or msg.exception_
-    if (msg.HasException()) { msg.retval_.SetNull(); /* sigh */ }
-    msg.retval_.ToPhp(obj->channel, retval TSRMLS_CC);
-    return retval.Escape();
+    if (msg.HasException()) {
+         zend_throw_exception_ex(
+            zend_exception_get_default(TSRMLS_C), 0 TSRMLS_CC,
+            "JS exception thrown during __get of \"%*s\"",
+            Z_STRLEN_P(member), Z_STRVAL_P(member));
+        return;
+    }
+    msg.retval_.ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
 }
-
 
 static void node_php_jsobject_free_storage(void *object, zend_object_handle handle TSRMLS_DC) {
     node_php_jsobject *c = (node_php_jsobject *) object;
@@ -224,11 +264,22 @@ STUB_METHOD(__construct)
 STUB_METHOD(__sleep)
 STUB_METHOD(__wakeup)
 
+ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_one_arg, 0, 0, 1)
+    ZEND_ARG_INFO(0, member)
+ZEND_END_ARG_INFO()
+ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_one_arg_retref, 0, 1, 1)
+    ZEND_ARG_INFO(0, member)
+ZEND_END_ARG_INFO()
+
 static const zend_function_entry node_php_jsobject_methods[] = {
     PHP_ME(JsObject, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
     PHP_ME(JsObject, __sleep,     NULL, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
     PHP_ME(JsObject, __wakeup,    NULL, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
-    {NULL, NULL, NULL}
+#if USE_MAGIC_ISSET
+    PHP_ME(JsObject, __isset, node_php_jsobject_one_arg, ZEND_ACC_PUBLIC)
+#endif
+    PHP_ME(JsObject, __get, node_php_jsobject_one_arg_retref, ZEND_ACC_PUBLIC)
+    ZEND_FE_END
 };
 
 
@@ -245,8 +296,10 @@ PHP_MINIT_FUNCTION(node_php_jsobject_class) {
     node_php_jsobject_handlers.clone_obj = NULL;
     node_php_jsobject_handlers.cast_object = NULL;
     node_php_jsobject_handlers.get_property_ptr_ptr = NULL;
+#if !USE_MAGIC_ISSET
     node_php_jsobject_handlers.has_property = node_php_jsobject_has_property;
-    node_php_jsobject_handlers.read_property = node_php_jsobject_read_property;
+#endif
+    //node_php_jsobject_handlers.read_property = node_php_jsobject_read_property;
     /*
     node_php_jsobject_handlers.write_property = node_php_jsobject_write_property;
     node_php_jsobject_handlers.unset_property = node_php_jsobject_unset_property;

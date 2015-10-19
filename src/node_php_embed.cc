@@ -61,7 +61,7 @@ public:
         }
         NODE_PHP_EMBED_G(messageChannel) = &messageChannel;
         {
-        ZVal retval(ZEND_FILE_LINE_C);
+        ZVal retval{ZEND_FILE_LINE_C};
         zend_first_try {
             char eval_msg[] = { "request" }; // shows up in error messages
             if (FAILURE == zend_eval_string_ex(source_, *retval, eval_msg, true TSRMLS_CC)) {
@@ -113,7 +113,7 @@ static int node_php_embed_ub_write(const char *str, unsigned int str_length TSRM
     AsyncMessageWorker::MessageChannel *messageChannel = NODE_PHP_EMBED_G(messageChannel);
     PhpRequestWorker *worker = (PhpRequestWorker *)
         (messageChannel->GetWorker());
-    ZVal stream(ZEND_FILE_LINE_C);
+    ZVal stream{ZEND_FILE_LINE_C};
     worker->GetStream().ToPhp(messageChannel, stream TSRMLS_CC);
     zval buf; INIT_ZVAL(buf); // stack allocate a null zval as a placeholder
     zval *args[] = { &buf };
@@ -146,10 +146,10 @@ static void node_php_embed_register_server_variables(zval *track_vars_array TSRM
     // relative to the document root."
     // XXX
     // Put PHP-wrapped version of node context object in $_SERVER['CONTEXT']
-    ZVal context(ZEND_FILE_LINE_C);
+    ZVal context{ZEND_FILE_LINE_C};
     worker->GetContext().ToPhp(messageChannel, context TSRMLS_CC);
     char contextName[] = { "CONTEXT" };
-    php_register_variable_ex(contextName, context.Transfer(), track_vars_array TSRMLS_CC);
+    php_register_variable_ex(contextName, context.Transfer(TSRMLS_C), track_vars_array TSRMLS_CC);
     // XXX call a JS function passing in $_SERVER to allow init?
 }
 

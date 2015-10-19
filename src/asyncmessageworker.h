@@ -63,16 +63,19 @@ namespace node_php_embed {
   }
   // Map PHP object to an index (PHP thread only)
   objid_t IdForPhpObj(zval *z) {
-      if (phpObjToId_.count(z)) {
-          return phpObjToId_.at(z);
+      assert(Z_TYPE_P(z) == IS_OBJECT);
+      zend_object_handle handle = Z_OBJ_HANDLE_P(z);
+      if (phpObjToId_.count(handle)) {
+          return phpObjToId_.at(handle);
       }
       uv_mutex_lock(&id_lock_);
       objid_t id = (nextId_++);
       uv_mutex_unlock(&id_lock_);
-      Z_ADDREF_P(z);
       if (id >= phpObjList_.size()) { phpObjList_.resize(id+1); }
+      // xxx clone/separate z?
+      Z_ADDREF_P(z);
       phpObjList_[id] = z;
-      phpObjToId_[z] = id;
+      phpObjToId_[handle] = id;
       return id;
   }
   // returned value is owned by objectmapper, caller should not release it.
@@ -82,7 +85,7 @@ namespace node_php_embed {
       if (z.IsNull()) {
           node_php_jsobject_create(z.Ptr(), channel, id TSRMLS_CC);
           phpObjList_[id] = z.Ptr();
-          phpObjToId_[z.Ptr()] = id;
+          phpObjToId_[Z_OBJ_HANDLE_P(z.Ptr())] = id;
           // one excess reference: owned by objectmapper
           return z.Escape();
       }
@@ -94,7 +97,7 @@ namespace node_php_embed {
       zval *z = (id < phpObjList_.size()) ? phpObjList_[id] : NULL;
       if (z) {
           phpObjList_[id] = NULL;
-          phpObjToId_.erase(z);
+          phpObjToId_.erase(Z_OBJ_HANDLE_P(z));
           zval_ptr_dtor(&z);
       }
   }
@@ -255,7 +258,7 @@ namespace node_php_embed {
   Nan::Persistent<v8::NativeWeakMap> jsObjToId_;
   // PHP Object mapping
   // Read/writable only from PHP thread
-  std::unordered_map<zval*,objid_t> phpObjToId_;
+  std::unordered_map<zend_object_handle,objid_t> phpObjToId_;
   std::vector<zval*> phpObjList_;
   // Ids are allocated from both threads, so mutex is required
   uv_mutex_t id_lock_;
