@@ -187,6 +187,22 @@ class ZVal : public NonAssignable {
             }
         }
     };
+    class Buf : public Str {
+    public:
+        Buf(const char *data, std::size_t length) : Str(data, length) { }
+        virtual v8::Local<v8::Value> ToJs(ObjectMapper *m) const {
+            Nan::EscapableHandleScope scope;
+            return scope.Escape(Nan::CopyBuffer(data_, length_).ToLocalChecked());
+        }
+    };
+    class OBuf : public OStr {
+    public:
+        OBuf(const char *data, std::size_t length) : OStr(data, length) { }
+        virtual v8::Local<v8::Value> ToJs(ObjectMapper *m) const {
+            Nan::EscapableHandleScope scope;
+            return scope.Escape(Nan::CopyBuffer(data_, length_).ToLocalChecked());
+        }
+    };
     class Obj : public Base {
         objid_t id_;
     public:
@@ -252,6 +268,9 @@ class ZVal : public NonAssignable {
                 SetOwnedString(*str, str.length());
                 return;
             }
+        } else if (node::Buffer::HasInstance(v)) {
+            SetOwnedBuffer(node::Buffer::Data(v), node::Buffer::Length(v));
+            return;
         } else if (v->IsObject()) {
             SetJsObject(m, Nan::To<v8::Object>(v).ToLocalChecked());
             return;
@@ -329,6 +348,16 @@ class ZVal : public NonAssignable {
         type_ = VALUE_OSTR;
         new (&ostr_) OStr(data, length);
     }
+    void SetBuffer(const char *data, std::size_t length) {
+        PerhapsDestroy();
+        type_ = VALUE_BUF;
+        new (&buf_) Buf(data, length);
+    }
+    void SetOwnedBuffer(const char *data, std::size_t length) {
+        PerhapsDestroy();
+        type_ = VALUE_OBUF;
+        new (&obuf_) OBuf(data, length);
+    }
     void SetJsObject(ObjectMapper *m, v8::Local<v8::Object> o) {
         SetJsObject(m->IdForJsObj(o));
     }
@@ -380,11 +409,13 @@ class ZVal : public NonAssignable {
     }
     enum ValueTypes {
         VALUE_EMPTY, VALUE_NULL, VALUE_BOOL, VALUE_INT, VALUE_DOUBLE,
-        VALUE_STR, VALUE_OSTR, VALUE_JSOBJ, VALUE_PHPOBJ
+        VALUE_STR, VALUE_OSTR, VALUE_BUF, VALUE_OBUF,
+        VALUE_JSOBJ, VALUE_PHPOBJ
     } type_;
     union {
         int empty_; Null null_; Bool bool_; Int int_; Double double_;
-        Str str_; OStr ostr_; JsObj jsobj_; PhpObj phpobj_;
+        Str str_; OStr ostr_; Buf buf_; OBuf obuf_;
+        JsObj jsobj_; PhpObj phpobj_;
     };
     const Base &AsBase() {
         switch(type_) {
@@ -402,6 +433,10 @@ class ZVal : public NonAssignable {
             return str_;
         case VALUE_OSTR:
             return ostr_;
+        case VALUE_BUF:
+            return buf_;
+        case VALUE_OBUF:
+            return obuf_;
         case VALUE_JSOBJ:
             return jsobj_;
         case VALUE_PHPOBJ:

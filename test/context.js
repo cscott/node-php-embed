@@ -33,7 +33,9 @@ describe('Passing context object from JS to PHP', function() {
 				d: (((1<<30)-1)*4),
 				e: 1.5,
 				f: 'abcdef \uD83D\uDCA9',
-				g: { f: 1 }
+				g: { f: 1 },
+				h: function fname(x) { return x; },
+				i: new Buffer('abc', 'utf8')
 			}
 		}).then(function(v) {
 			out.toString().replace(/int\(4294967292\)/,'float(4294967292)')
@@ -44,7 +46,9 @@ describe('Passing context object from JS to PHP', function() {
 				'float(4294967292)\n' +
 				'float(1.5)\n' +
 				'string(11) "abcdef \uD83D\uDCA9"\n' +
-				'int(1)\n'
+				'int(1)\n' +
+				'string(5) "fname"\n' +
+				'string(3) "abc"\n'
 			);
 		});
     });

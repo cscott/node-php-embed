@@ -117,12 +117,12 @@ static int node_php_embed_ub_write(const char *str, unsigned int str_length TSRM
         (messageChannel->GetWorker());
     ZVal stream(ZEND_FILE_LINE_C);
     worker->GetStream().ToPhp(messageChannel, stream TSRMLS_CC);
-    // Creating buf "the hard way" to avoid unnecessary copying of str.
-    zval buf;
-    INIT_ZVAL(buf); ZVAL_STRINGL(&buf, str, str_length, 0);
+    zval buf; INIT_ZVAL(buf); // stack allocate a null zval as a placeholder
     zval *args[] = { &buf };
-    // XXX, would be better to pass this as a buffer, not a string.
     JsInvokeMethodMsg msg(messageChannel, stream.Ptr(), "write", 1, args);
+    // hack the message to pass a buffer, not a string
+    // (and avoid unnecessary copying by not using an "owned buffer")
+    msg.Argv(0).SetBuffer(str, str_length);
     messageChannel->Send(&msg);
     // XXX wait for response
     msg.WaitForResponse(); // XXX optional?
