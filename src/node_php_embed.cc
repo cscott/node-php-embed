@@ -34,12 +34,14 @@ ZEND_DECLARE_MODULE_GLOBALS(node_php_embed);
 // we need to rewrite it to use guaranteed delivery.
 class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
 public:
-    PhpRequestWorker(Nan::Callback *callback, v8::Local<v8::Object> stream, char *source)
-        : AsyncMessageWorker(callback), result_(NULL) {
+    PhpRequestWorker(Nan::Callback *callback, v8::Local<v8::Object> stream, v8::Local<v8::Value> context, char *source)
+        : AsyncMessageWorker(callback), result_(NULL), stream_(), context_() {
         size_t size = strlen(source) + 1;
         source_ = new char[size];
         memcpy(source_, source, size);
-        streamId_ = IdForJsObj(stream);
+        JsOnlyMapper mapper(this);
+        stream_.Set(&mapper, stream);
+        context_.Set(&mapper, context);
     }
     ~PhpRequestWorker() {
         delete[] source_;
@@ -47,7 +49,8 @@ public:
             delete[] result_;
         }
     }
-    uint32_t GetStreamId() { return streamId_; }
+    Value &GetStream() { return stream_; }
+    Value &GetContext() { return context_; }
 
     // Executed inside the PHP thread.  It is not safe to access V8 or
     // V8 data structures here, so everything we need for input and output
@@ -60,7 +63,7 @@ public:
         }
         NODE_PHP_EMBED_G(messageChannel) = &messageChannel;
         {
-        ZVal retval;
+        ZVal retval(ZEND_FILE_LINE_C);
         zend_first_try {
             char eval_msg[] = { "request" }; // shows up in error messages
             if (FAILURE == zend_eval_string_ex(source_, *retval, eval_msg, true TSRMLS_CC)) {
@@ -80,6 +83,11 @@ public:
         } zend_end_try();
         }
         NODE_PHP_EMBED_G(messageChannel) = NULL;
+        // free php wrapper objects for this request
+        // XXX JS wrappers should be invalidated first, then probably
+        // one more pass through the from-JS message loop, before
+        // freeing the PHP size.
+        ClearAllPhpIds();
         php_request_shutdown(NULL);
     }
     // Executed when the async work is complete.
@@ -96,7 +104,8 @@ public:
 private:
     char *source_;
     char *result_;
-    uint32_t streamId_;
+    Value stream_;
+    Value context_;
 };
 
 /* PHP extension metadata */
@@ -104,13 +113,16 @@ private:
 static int node_php_embed_ub_write(const char *str, unsigned int str_length TSRMLS_DC) {
     // Fetch the ExecutionStream object for this thread.
     AsyncMessageWorker::MessageChannel *messageChannel = NODE_PHP_EMBED_G(messageChannel);
-    uint32_t streamId = ((PhpRequestWorker*) messageChannel->GetWorker())
-        ->GetStreamId();
+    PhpRequestWorker *worker = (PhpRequestWorker *)
+        (messageChannel->GetWorker());
+    ZVal stream(ZEND_FILE_LINE_C);
+    worker->GetStream().ToPhp(messageChannel, stream TSRMLS_CC);
+    // Creating buf "the hard way" to avoid unnecessary copying of str.
     zval buf;
     INIT_ZVAL(buf); ZVAL_STRINGL(&buf, str, str_length, 0);
     zval *args[] = { &buf };
     // XXX, would be better to pass this as a buffer, not a string.
-    JsInvokeMethodMsg msg(messageChannel, streamId, "write", 1, args);
+    JsInvokeMethodMsg msg(messageChannel, stream.Ptr(), "write", 1, args);
     messageChannel->Send(&msg);
     // XXX wait for response
     msg.WaitForResponse(); // XXX optional?
@@ -129,10 +141,18 @@ static void node_php_embed_register_server_variables(zval *track_vars_array TSRM
 {
     // Fetch the ExecutionStream object for this thread.
     AsyncMessageWorker::MessageChannel *messageChannel = NODE_PHP_EMBED_G(messageChannel);
+    PhpRequestWorker *worker = (PhpRequestWorker *)
+        (messageChannel->GetWorker());
     php_import_environment_variables(track_vars_array TSRMLS_CC);
-    // XXX put PHP-wrapped version of node context object in the
-    // $SERVER variable.
-    php_register_variable_safe("PHP_SELF", "CSA", 3, track_vars_array TSRMLS_CC);
+    // Set PHP_SELF to "The filename of the currently executing script,
+    // relative to the document root."
+    // XXX
+    // Put PHP-wrapped version of node context object in $_SERVER['CONTEXT']
+    ZVal context(ZEND_FILE_LINE_C);
+    worker->GetContext().ToPhp(messageChannel, context TSRMLS_CC);
+    char contextName[] = { "CONTEXT" };
+    php_register_variable_ex(contextName, context.Transfer(), track_vars_array TSRMLS_CC);
+    // XXX call a JS function passing in $_SERVER to allow init?
 }
 
 NAN_METHOD(setIniPath) {
@@ -144,7 +164,7 @@ NAN_METHOD(setIniPath) {
 }
 
 NAN_METHOD(request) {
-    REQUIRE_ARGUMENTS(3);
+    REQUIRE_ARGUMENTS(4);
     REQUIRE_ARGUMENT_STRING(0, source);
     if (!*source) {
         return Nan::ThrowTypeError("bad string");
@@ -153,13 +173,14 @@ NAN_METHOD(request) {
         return Nan::ThrowTypeError("stream expected");
     }
     v8::Local<v8::Object> stream = info[1].As<v8::Object>();
-    if (!info[2]->IsFunction()) {
+    v8::Local<v8::Value> context = info[2];
+    if (!info[3]->IsFunction()) {
         return Nan::ThrowTypeError("callback expected");
     }
-    Nan::Callback *callback = new Nan::Callback(info[2].As<v8::Function>());
+    Nan::Callback *callback = new Nan::Callback(info[3].As<v8::Function>());
 
     node_php_embed_ensure_init();
-    Nan::AsyncQueueWorker(new PhpRequestWorker(callback, stream, *source));
+    Nan::AsyncQueueWorker(new PhpRequestWorker(callback, stream, context, *source));
 }
 
 /** PHP module housekeeping */

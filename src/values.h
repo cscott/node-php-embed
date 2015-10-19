@@ -18,21 +18,50 @@ public:
     NonAssignable() {}
 };
 
+typedef uint32_t objid_t;
+
 class ObjectMapper {
  public:
-    virtual uint32_t IdForJsObj(const v8::Local<v8::Object> o) = 0;
-    virtual uint32_t IdForPhpObj(const zval *o) = 0;
-    virtual void GetPhp(uint32_t id, zval *return_value TSRMLS_DC) = 0;
-    virtual v8::Local<v8::Object> GetJs(uint32_t id) = 0;
+    // These two are accessed only from JS thread
+    // The mapper will hold persistent references to these objects
+    virtual objid_t IdForJsObj(const v8::Local<v8::Object> o) = 0;
+    virtual v8::Local<v8::Object> JsObjForId(objid_t id) = 0;
+    // These two are accessed only from PHP thread
+    // The mapper owns the references for these zvals.
+    virtual objid_t IdForPhpObj(zval *o) = 0;
+    virtual zval * PhpObjForId(objid_t id TSRMLS_DC) = 0;
 };
 
 /** Helper for PHP zvals */
 class ZVal : public NonAssignable {
  public:
-    ZVal() { ALLOC_INIT_ZVAL(zvalp); }
-    virtual ~ZVal() { zval_ptr_dtor(&zvalp); }
-    inline zval * operator*() const { return zvalp; }
+    ZVal(ZEND_FILE_LINE_D) : transferred(false) {
+        ALLOC_ZVAL_REL(zvalp);
+        INIT_ZVAL(*zvalp);
+    }
+    ZVal(zval *z ZEND_FILE_LINE_DC) : zvalp(z), transferred(false) {
+        if (zvalp) {
+            Z_ADDREF_P(zvalp);
+        } else {
+            ALLOC_ZVAL_REL(zvalp);
+            INIT_ZVAL(*zvalp);
+        }
+    }
+    virtual ~ZVal() {
+        if (transferred) {
+            efree(zvalp);
+        } else {
+            zval_ptr_dtor(&zvalp);
+        }
+    }
+    inline zval * Ptr() const { return zvalp; }
+    inline zval ** PtrPtr() { return &zvalp; }
     inline zval * Escape() { Z_ADDREF_P(zvalp); return zvalp; }
+    // Support a PHP calling convention where the actual zval object
+    // is owned by the caller, but the contents are transferred to the
+    // callee.
+    inline zval * Transfer() { transferred=true; return zvalp; }
+    inline zval * operator*() const { return Ptr(); } // shortcut
     inline int Type() { return Z_TYPE_P(zvalp); }
     inline bool IsNull() { return Type() == IS_NULL; }
     inline bool IsBool() { return Type() == IS_BOOL; }
@@ -42,13 +71,26 @@ class ZVal : public NonAssignable {
     inline bool IsArray() { return Type() == IS_ARRAY; }
     inline bool IsObject() { return Type() == IS_OBJECT; }
     inline bool IsResource() { return Type() == IS_RESOURCE; }
+    inline void Set(zval *z ZEND_FILE_LINE_DC) {
+        zval_ptr_dtor(&zvalp);
+        zvalp=z;
+        if (zvalp) {
+            Z_ADDREF_P(zvalp);
+        } else {
+            ALLOC_ZVAL_REL(zvalp);
+            INIT_ZVAL(*zvalp);
+        }
+    }
     inline void SetNull() { ZVAL_NULL(zvalp); }
     inline void SetBool(bool b) { ZVAL_BOOL(zvalp, b ? 1 : 0); }
     inline void SetLong(long l) { ZVAL_LONG(zvalp, l); }
     inline void SetDouble(double d) { ZVAL_DOUBLE(zvalp, d); }
-    inline void SetString(const char *str, int len, bool dup) { ZVAL_STRINGL(zvalp, str, len, dup); }
+    inline void SetString(const char *str, int len, bool dup) {
+        ZVAL_STRINGL(zvalp, str, len, dup);
+    }
  private:
     zval *zvalp;
+    bool transferred;
 };
 
 /* A poor man's tagged union, so that we can stack allocate messages
@@ -60,7 +102,7 @@ class ZVal : public NonAssignable {
         explicit Base() { }
         virtual ~Base() { }
         virtual v8::Local<v8::Value> ToJs(ObjectMapper *m) const = 0;
-        virtual void ToPhp(ObjectMapper *m, zval *return_value TSRMLS_DC) const = 0;
+        virtual void ToPhp(ObjectMapper *m, zval *return_value, zval **return_value_ptr TSRMLS_DC) const = 0;
     };
     class Null : public Base {
     public:
@@ -69,7 +111,7 @@ class ZVal : public NonAssignable {
             Nan::EscapableHandleScope scope;
             return scope.Escape(Nan::Null());
         }
-        virtual void ToPhp(ObjectMapper *m, zval *return_value TSRMLS_DC) const {
+        virtual void ToPhp(ObjectMapper *m, zval *return_value, zval **return_value_ptr TSRMLS_DC) const {
             RETURN_NULL();
         }
     };
@@ -81,7 +123,7 @@ class ZVal : public NonAssignable {
             Nan::EscapableHandleScope scope;
             return scope.Escape(Nan::New(value_));
         }
-        virtual void ToPhp(ObjectMapper *m, zval *return_value TSRMLS_DC) const {
+        virtual void ToPhp(ObjectMapper *m, zval *return_value, zval **return_value_ptr TSRMLS_DC) const {
             RETURN_BOOL(value_);
         }
     };
@@ -99,8 +141,12 @@ class ZVal : public NonAssignable {
             }
             return scope.Escape(Nan::New((double)value_));
         }
-        virtual void ToPhp(ObjectMapper *m, zval *return_value TSRMLS_DC) const {
-            RETURN_LONG((long)value_);
+        virtual void ToPhp(ObjectMapper *m, zval *return_value, zval **return_value_ptr TSRMLS_DC) const {
+            if (value_ >= std::numeric_limits<long>::min() &&
+                value_ <= std::numeric_limits<long>::max()) {
+                RETURN_LONG((long)value_);
+            }
+            RETURN_DOUBLE((double)value_);
         }
     };
     class Double : public Base {
@@ -111,7 +157,7 @@ class ZVal : public NonAssignable {
             Nan::EscapableHandleScope scope;
             return scope.Escape(Nan::New(value_));
         }
-        virtual void ToPhp(ObjectMapper *m, zval *return_value TSRMLS_DC) const {
+        virtual void ToPhp(ObjectMapper *m, zval *return_value, zval **return_value_ptr TSRMLS_DC) const {
             RETURN_DOUBLE(value_);
         }
     };
@@ -126,7 +172,7 @@ class ZVal : public NonAssignable {
             Nan::EscapableHandleScope scope;
             return scope.Escape(Nan::New(data_, length_).ToLocalChecked());
         }
-        virtual void ToPhp(ObjectMapper *m, zval *return_value TSRMLS_DC) const {
+        virtual void ToPhp(ObjectMapper *m, zval *return_value, zval **return_value_ptr TSRMLS_DC) const {
             RETURN_STRINGL(data_, length_, 1);
         }
     };
@@ -140,42 +186,34 @@ class ZVal : public NonAssignable {
                 efree(const_cast<char*>(data_));
             }
         }
-        virtual void ToPhp(ObjectMapper *m, zval *return_value TSRMLS_DC) const {
-            RETVAL_STRINGL(data_, length_, 0/*no dup required*/);
-            //data_ = NULL;
+    };
+    class Obj : public Base {
+        objid_t id_;
+    public:
+        explicit Obj(objid_t id) : id_(id) { }
+        virtual v8::Local<v8::Value> ToJs(ObjectMapper *m) const {
+            Nan::EscapableHandleScope scope;
+            return scope.Escape(m->JsObjForId(id_));
+        }
+        virtual void ToPhp(ObjectMapper *m, zval *return_value, zval **return_value_ptr TSRMLS_DC) const {
+            zval_ptr_dtor(&return_value);
+            *return_value_ptr = return_value = m->PhpObjForId(id_ TSRMLS_CC);
+            // objectmapper owns the reference returned, but we need a
+            // reference owned by the caller.  so increment reference count.
+            Z_ADDREF_P(return_value);
         }
     };
-    class JsObj : public Base {
-        uint32_t id_;
+    class JsObj : public Obj {
     public:
         explicit JsObj(ObjectMapper *m, v8::Local<v8::Object> o)
-            : id_(m->IdForJsObj(o)) { }
-        explicit JsObj(uint32_t id)
-            : id_(id) { }
-        virtual v8::Local<v8::Value> ToJs(ObjectMapper *m) const {
-            Nan::EscapableHandleScope scope;
-            return scope.Escape(m->GetJs(id_));
-        }
-        virtual void ToPhp(ObjectMapper *m, zval *return_value TSRMLS_DC) const {
-            // wrap js object
-            node_php_jsobject_create(return_value, m, id_ TSRMLS_CC);
-        }
+            : Obj(m->IdForJsObj(o)) { }
+        explicit JsObj(objid_t id) : Obj(id) { }
     };
-    class PhpObj : public Base {
-        uint32_t id_;
+    class PhpObj : public Obj {
     public:
         explicit PhpObj(ObjectMapper *m, zval *o)
-            : id_(m->IdForPhpObj(o)) { }
-        explicit PhpObj(uint32_t id)
-            : id_(id) { }
-        virtual v8::Local<v8::Value> ToJs(ObjectMapper *m) const {
-            Nan::EscapableHandleScope scope;
-            // XXX wrap php object
-            return scope.Escape(Nan::Null());
-        }
-        virtual void ToPhp(ObjectMapper *m, zval *return_value TSRMLS_DC) const {
-            m->GetPhp(id_, return_value TSRMLS_CC);
-        }
+            : Obj(m->IdForPhpObj(o)) { }
+        explicit PhpObj(objid_t id) : Obj(id) { }
     };
 
  public:
@@ -294,7 +332,7 @@ class ZVal : public NonAssignable {
     void SetJsObject(ObjectMapper *m, v8::Local<v8::Object> o) {
         SetJsObject(m->IdForJsObj(o));
     }
-    void SetJsObject(uint32_t id) {
+    void SetJsObject(objid_t id) {
         PerhapsDestroy();
         type_ = VALUE_JSOBJ;
         new (&jsobj_) JsObj(id);
@@ -302,7 +340,7 @@ class ZVal : public NonAssignable {
     void SetPhpObject(ObjectMapper *m, zval *o) {
         SetPhpObject(m->IdForPhpObj(o));
     }
-    void SetPhpObject(uint32_t id) {
+    void SetPhpObject(objid_t id) {
         PerhapsDestroy();
         type_ = VALUE_PHPOBJ;
         new (&phpobj_) PhpObj(id);
@@ -312,8 +350,13 @@ class ZVal : public NonAssignable {
         // should we create a new escapablehandlescope here?
         return AsBase().ToJs(m);
     }
-    void ToPhp(ObjectMapper *m, zval *return_value TSRMLS_DC) {
-        AsBase().ToPhp(m, return_value TSRMLS_CC);
+    // caller owns the zval
+    void ToPhp(ObjectMapper *m, zval *return_value, zval **return_value_ptr TSRMLS_DC) {
+        AsBase().ToPhp(m, return_value, return_value_ptr TSRMLS_CC);
+    }
+    // caller owns the ZVal, and is responsible for freeing it.
+    inline void ToPhp(ObjectMapper *m, ZVal &z TSRMLS_DC) {
+        ToPhp(m, z.Ptr(), z.PtrPtr() TSRMLS_CC);
     }
     bool IsEmpty() {
         return (type_ == VALUE_EMPTY);

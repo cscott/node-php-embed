@@ -95,9 +95,8 @@ class JsInvokeMethodMsg : public MessageToJs {
  public:
     JsInvokeMethodMsg(ObjectMapper *m, zval *obj, zval *name, int argc, zval **argv)
         : MessageToJs(m), obj_(m, obj), name_(m, name), argc_(argc), argv_(Value::NewArray(m, argc, argv)) { }
-    JsInvokeMethodMsg(ObjectMapper *m, uint32_t objId, const char *name, int argc, zval **argv)
-        : MessageToJs(m), obj_(), name_(), argc_(argc), argv_(Value::NewArray(m, argc, argv)) {
-        obj_.SetJsObject(objId);
+    JsInvokeMethodMsg(ObjectMapper *m, zval *obj, const char *name, int argc, zval **argv)
+        : MessageToJs(m), obj_(m, obj), name_(), argc_(argc), argv_(Value::NewArray(m, argc, argv)) {
         name_.SetOwnedString(name, strlen(name));
     }
     virtual ~JsInvokeMethodMsg() { delete[] argv_; }
@@ -138,12 +137,12 @@ class PhpGetPropertyMsg : public MessageToPhp {
         : MessageToPhp(m), obj_(m, obj), name_(m, name) { }
  protected:
     virtual void InPhp(ObjectMapper *m TSRMLS_DC) {
-        ZVal obj, name;
+        ZVal obj(ZEND_FILE_LINE_C), name(ZEND_FILE_LINE_C);
         zval *r;
         zend_class_entry *ce;
         zend_property_info *property_info;
 
-        obj_.ToPhp(m, *obj TSRMLS_CC); name_.ToPhp(m, *name TSRMLS_CC);
+        obj_.ToPhp(m, obj TSRMLS_CC); name_.ToPhp(m, name TSRMLS_CC);
         if (!(obj.IsObject() && name.IsString())) {
             retval_.SetNull();
             return;
