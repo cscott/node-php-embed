@@ -3,6 +3,8 @@
 #include <cstdlib>
 #include <limits>
 #include <new>
+#include <string>
+#include <sstream>
 
 #include "nan.h"
 
@@ -110,10 +112,17 @@ class ZVal : public NonAssignable {
         virtual ~Base() { }
         virtual v8::Local<v8::Value> ToJs(ObjectMapper *m) const = 0;
         virtual void ToPhp(ObjectMapper *m, zval *return_value, zval **return_value_ptr TSRMLS_DC) const = 0;
+        /* For debugging.  The returned value should not be deallocated. */
+        virtual const char *TypeString() const = 0;
+        /* For debugging purposes. Caller (implicitly) deallocates. */
+        virtual std::string ToString() const {
+            return std::string(TypeString());
+        }
     };
     class Null : public Base {
     public:
         explicit Null() { }
+        virtual const char *TypeString() const { return "Null"; }
         virtual v8::Local<v8::Value> ToJs(ObjectMapper *m) const {
             Nan::EscapableHandleScope scope;
             return scope.Escape(Nan::Null());
@@ -122,10 +131,21 @@ class ZVal : public NonAssignable {
             RETURN_NULL();
         }
     };
-    class Bool : public Base {
+    template <class T>
+    class Prim : public Base {
     public:
-        bool value_;
-        explicit Bool(bool value) : value_(value) { }
+        T value_;
+        explicit Prim(T value) : value_(value) { }
+        virtual std::string ToString() const {
+            std::stringstream ss;
+            ss << TypeString() << "(" << value_ << ")";
+            return ss.str();
+        }
+    };
+    class Bool : public Prim<bool> {
+    public:
+        using Prim::Prim;
+        virtual const char *TypeString() const { return "Bool"; }
         virtual v8::Local<v8::Value> ToJs(ObjectMapper *m) const {
             Nan::EscapableHandleScope scope;
             return scope.Escape(Nan::New(value_));
@@ -134,10 +154,10 @@ class ZVal : public NonAssignable {
             RETURN_BOOL(value_);
         }
     };
-    class Int : public Base {
+    class Int : public Prim<int64_t> {
     public:
-        int64_t value_;
-        explicit Int(int64_t value) : value_(value) { }
+        using Prim::Prim;
+        virtual const char *TypeString() const { return "Int"; }
         virtual v8::Local<v8::Value> ToJs(ObjectMapper *m) const {
             Nan::EscapableHandleScope scope;
             if (value_ >= 0 && value_ <= std::numeric_limits<uint32_t>::max()) {
@@ -156,10 +176,10 @@ class ZVal : public NonAssignable {
             RETURN_DOUBLE((double)value_);
         }
     };
-    class Double : public Base {
-        double value_;
+    class Double : public Prim<double> {
     public:
-        explicit Double(double value) : value_(value) { }
+        using Prim::Prim;
+        virtual const char *TypeString() const { return "Double"; }
         virtual v8::Local<v8::Value> ToJs(ObjectMapper *m) const {
             Nan::EscapableHandleScope scope;
             return scope.Escape(Nan::New(value_));
@@ -175,12 +195,24 @@ class ZVal : public NonAssignable {
     public:
         explicit Str(const char *data, std::size_t length)
             : data_(data), length_(length) { }
+        virtual const char *TypeString() const { return "Str"; }
         virtual v8::Local<v8::Value> ToJs(ObjectMapper *m) const {
             Nan::EscapableHandleScope scope;
             return scope.Escape(Nan::New(data_, length_).ToLocalChecked());
         }
         virtual void ToPhp(ObjectMapper *m, zval *return_value, zval **return_value_ptr TSRMLS_DC) const {
             RETURN_STRINGL(data_, length_, 1);
+        }
+        virtual std::string ToString() const {
+            std::stringstream ss;
+            ss << TypeString() << "(" << length_ << ",";
+            if (length_ > 10) {
+                ss << std::string(data_, 7) << "...";
+            } else {
+                ss << std::string(data_, length_);
+            }
+            ss << ")";
+            return ss.str();
         }
     };
     class OStr : public Str {
@@ -198,10 +230,12 @@ class ZVal : public NonAssignable {
                 delete[] data_;
             }
         }
+        virtual const char *TypeString() const { return "OStr"; }
     };
     class Buf : public Str {
     public:
         Buf(const char *data, std::size_t length) : Str(data, length) { }
+        virtual const char *TypeString() const { return "Buf"; }
         virtual v8::Local<v8::Value> ToJs(ObjectMapper *m) const {
             Nan::EscapableHandleScope scope;
             return scope.Escape(Nan::CopyBuffer(data_, length_).ToLocalChecked());
@@ -210,6 +244,7 @@ class ZVal : public NonAssignable {
     class OBuf : public OStr {
     public:
         OBuf(const char *data, std::size_t length) : OStr(data, length) { }
+        virtual const char *TypeString() const { return "OBuf"; }
         virtual v8::Local<v8::Value> ToJs(ObjectMapper *m) const {
             Nan::EscapableHandleScope scope;
             return scope.Escape(Nan::CopyBuffer(data_, length_).ToLocalChecked());
@@ -230,18 +265,25 @@ class ZVal : public NonAssignable {
             // reference owned by the caller.  so increment reference count.
             Z_ADDREF_P(return_value);
         }
+        virtual std::string ToString() const {
+            std::stringstream ss;
+            ss << TypeString() << "(" << id_ << ")";
+            return ss.str();
+        }
     };
     class JsObj : public Obj {
     public:
+        using Obj::Obj;
         explicit JsObj(ObjectMapper *m, v8::Local<v8::Object> o)
             : Obj(m->IdForJsObj(o)) { }
-        explicit JsObj(objid_t id) : Obj(id) { }
+        virtual const char *TypeString() const { return "JsObj"; }
     };
     class PhpObj : public Obj {
     public:
+        using Obj::Obj;
         explicit PhpObj(ObjectMapper *m, zval *o)
             : Obj(m->IdForPhpObj(o)) { }
-        explicit PhpObj(objid_t id) : Obj(id) { }
+        virtual const char *TypeString() const { return "PhpObj"; }
     };
 
  public:
@@ -412,6 +454,11 @@ class ZVal : public NonAssignable {
             return false;
         }
     }
+    /* For debugging: describe the value. Caller implicitly deallocates. */
+    std::string ToString() {
+        return AsBase().ToString();
+    }
+
  private:
     void PerhapsDestroy() {
         if (!IsEmpty()) {
