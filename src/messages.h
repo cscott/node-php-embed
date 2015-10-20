@@ -28,22 +28,27 @@ class MessageToPhp : public Message {
 };
 
 class MessageToJs : public Message {
-    uv_barrier_t finish;
+    uv_barrier_t *finish_;
  protected:
     // in JS context
     virtual void InJs(ObjectMapper *m) = 0;
  public:
-    MessageToJs(ObjectMapper *m) : Message(m) {
-        uv_barrier_init(&finish, 2);
-    }
-    virtual ~MessageToJs() {
-        uv_barrier_destroy(&finish);
+ MessageToJs(ObjectMapper *m) : Message(m), finish_(new uv_barrier_t) {
+        uv_barrier_init(finish_, 2);
+        // We dynamically allocate the barrier, and deallocate it after
+        // uv_barrier_wait, *not* during ~MessageToJs(), to avoid a race
+        // on OSX where the PHP thread destroys the message before the JS
+        // thread has been released.
     }
     // in PHP context
     void WaitForResponse() {
         // XXX invoke a recursive message loop, so JS
         // can call back into PHP while PHP is blocked.
-        uv_barrier_wait(&finish);
+        uv_barrier_t *b = finish_;
+        if (uv_barrier_wait(b) > 0) {
+            uv_barrier_destroy(b);
+            delete b;
+        }
     }
     // in JS context
     void ExecuteJs() {
@@ -59,7 +64,13 @@ class MessageToJs : public Message {
             exception_.Set(mapper_, Nan::TypeError("no return value"));
         }
         // signal completion.
-        uv_barrier_wait(&finish);
+        // cache the uv_barrier_t * because it's not safe to touch `this`
+        // after uv_barrier_wait() returns (PHP side may have deleted object).
+        uv_barrier_t *b = finish_;
+        if (uv_barrier_wait(b) > 0) {
+            uv_barrier_destroy(b);
+            delete b;
+        }
     }
 };
 
