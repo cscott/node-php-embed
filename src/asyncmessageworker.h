@@ -7,6 +7,17 @@
 #include "messages.h"
 #include "node_php_jsobject_class.h"
 
+#if defined(V8_MAJOR_VERSION) && (V8_MAJOR_VERSION > 4 || \
+  (V8_MAJOR_VERSION == 4 && defined(V8_MINOR_VERSION) && V8_MINOR_VERSION >= 2))
+#define USE_WEAKMAP
+#define WEAKMAP_CTXT
+#define WEAKMAP_MAYBE(x, d) (x)
+#else
+#define NativeWeakMap Map
+#define WEAKMAP_CTXT v8::Isolate::GetCurrent()->GetCurrentContext(),
+#define WEAKMAP_MAYBE(x, d) ((x).FromMaybe(d))
+#endif
+
 namespace node_php_embed {
 
 /* This class is similar to Nan's AsyncProgressWorker, except that
@@ -44,13 +55,13 @@ namespace node_php_embed {
       // Have we already mapped this?
       Nan::HandleScope scope;
       v8::Local<v8::NativeWeakMap> jsObjToId = Nan::New(jsObjToId_);
-      if (jsObjToId->Has(o)) {
-          return Nan::To<objid_t>(jsObjToId->Get(o)).FromJust();
+      if (WEAKMAP_MAYBE(jsObjToId->Has(WEAKMAP_CTXT o), false)) {
+          return Nan::To<objid_t>(WEAKMAP_MAYBE(jsObjToId->Get(WEAKMAP_CTXT o), (v8::Local<v8::Value>) Nan::New(0))).FromJust();
       }
       uv_mutex_lock(&id_lock_);
       objid_t id = (nextId_++);
       uv_mutex_unlock(&id_lock_);
-      jsObjToId->Set(o, Nan::New(id));
+      jsObjToId->Set(WEAKMAP_CTXT o, Nan::New(id));
       SaveToPersistent(id, o);
       return id;
   }
@@ -115,7 +126,7 @@ namespace node_php_embed {
       // XXX depending on o's type, set its "is request valid" flag to false
       // since there might be other references to this object.
       v8::Local<v8::NativeWeakMap> jsObjToId = Nan::New(jsObjToId_);
-      jsObjToId->Delete(o.ToLocalChecked());
+      jsObjToId->Delete(WEAKMAP_CTXT o.ToLocalChecked());
       SaveToPersistent(id, Nan::Undefined());
   }
   void ClearAllJsIds() {
