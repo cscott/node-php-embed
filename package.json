@@ -39,7 +39,8 @@
   ],
   "devDependencies": {
     "mocha": "~2.3.3",
-    "should": "~7.1.0",
-    "readable-stream": "~2.0.2"
+    "readable-stream": "~2.0.2",
+    "segfault-handler": "~1.0.0",
+    "should": "~7.1.0"
   }
 }
