@@ -6,6 +6,10 @@
 The node `php-embed` package binds to PHP's "embed SAPI" in order to
 provide interoperability between PHP and JavaScript code.
 
+Node/iojs >= 2.4.0 is currently required, since we use `NativeWeakMap`s
+in the implementation.  This could probably be worked around using
+v8 hidden properties, but it doesn't seem worth it right now.
+
 # USAGE
 
 ```js
