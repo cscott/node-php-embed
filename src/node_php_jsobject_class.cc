@@ -186,6 +186,27 @@ PHP_METHOD(JsObject, __get) {
     msg.retval_.ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
 }
 
+/* Use (slightly thunked) versions of the has/read/write property handlers
+ * for dimensions as well, so that $obj['foo'] acts like $obj->foo. */
+static int node_php_jsobject_has_dimension(zval *obj, zval *idx, int chk_type TSRMLS_DC) {
+    // thunk!
+    if (chk_type == 0) { chk_type = 2; }
+    // use standard has_property method with new chk_type
+    return node_php_jsobject_handlers.has_property(obj, idx, chk_type ZEND_HASH_KEY_NULL TSRMLS_CC);
+}
+static zval *node_php_jsobject_read_dimension(zval *obj, zval *off, int type TSRMLS_DC) {
+    // use standard read_property method
+    return node_php_jsobject_handlers.read_property(obj, off, type ZEND_HASH_KEY_NULL TSRMLS_CC);
+}
+static void node_php_jsobject_write_dimension(zval *obj, zval *off, zval *val TSRMLS_DC) {
+    // use standard write_property method
+    node_php_jsobject_handlers.write_property(obj, off, val ZEND_HASH_KEY_NULL TSRMLS_CC);
+}
+static void node_php_jsobject_unset_dimension(zval *obj, zval *off TSRMLS_DC) {
+    // use standard unset_property method
+    node_php_jsobject_handlers.unset_property(obj, off ZEND_HASH_KEY_NULL TSRMLS_CC);
+}
+
 static void node_php_jsobject_free_storage(void *object, zend_object_handle handle TSRMLS_DC) {
     node_php_jsobject *c = (node_php_jsobject *) object;
 
@@ -309,6 +330,12 @@ PHP_MINIT_FUNCTION(node_php_jsobject_class) {
     node_php_jsobject_handlers.get_debug_info = node_php_jsobject_get_debug_info;
     node_php_jsobject_handlers.get_closure = node_php_jsobject_get_closure;
     */
+
+    /* Array access handlers: slightly thunked versions of property handlers. */
+    node_php_jsobject_handlers.read_dimension = node_php_jsobject_read_dimension;
+    node_php_jsobject_handlers.write_dimension = node_php_jsobject_write_dimension;
+    node_php_jsobject_handlers.has_dimension = node_php_jsobject_has_dimension;
+    node_php_jsobject_handlers.unset_dimension = node_php_jsobject_unset_dimension;
 
     return SUCCESS;
 }

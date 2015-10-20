@@ -67,37 +67,44 @@ describe('Passing context object from JS to PHP', function() {
 			}
 		}).then(function(v) {
 			out.toString().should.equal(
-				'a: int(0)\n' +
+				'->a: int(0)\n' +
+				'[\'a\']: int(0)\n' +
 				'isset: bool(true)\n' +
 				'empty: bool(true)\n' +
 				'exists: bool(true)\n' +
 				'\n' +
-				'b: int(42)\n' +
-				'isset: bool(true)\n' +
-				'empty: bool(false)\n' +
-				'exists: bool(true)\n' +
-				'\n' +
-				'c: NULL\n' +
-				'isset: bool(false)\n' +
-				'empty: bool(true)\n' +
-				'exists: bool(true)\n' +
-				'\n' +
-				'd: NULL\n' +
-				'isset: bool(false)\n' +
-				'empty: bool(true)\n' +
-				'exists: bool(true)\n' +
-				'\n' +
-				'e: string(1) "0"\n' +
-				'isset: bool(true)\n' +
-				'empty: bool(true)\n' +
-				'exists: bool(true)\n' +
-				'\n' +
-				'f: string(1) "1"\n' +
+				'->b: int(42)\n' +
+				'[\'b\']: int(42)\n' +
 				'isset: bool(true)\n' +
 				'empty: bool(false)\n' +
 				'exists: bool(true)\n' +
 				'\n' +
-				'g: NULL\n' +
+				'->c: NULL\n' +
+				'[\'c\']: NULL\n' +
+				'isset: bool(false)\n' +
+				'empty: bool(true)\n' +
+				'exists: bool(true)\n' +
+				'\n' +
+				'->d: NULL\n' +
+				'[\'d\']: NULL\n' +
+				'isset: bool(false)\n' +
+				'empty: bool(true)\n' +
+				'exists: bool(true)\n' +
+				'\n' +
+				'->e: string(1) "0"\n' +
+				'[\'e\']: string(1) "0"\n' +
+				'isset: bool(true)\n' +
+				'empty: bool(true)\n' +
+				'exists: bool(true)\n' +
+				'\n' +
+				'->f: string(1) "1"\n' +
+				'[\'f\']: string(1) "1"\n' +
+				'isset: bool(true)\n' +
+				'empty: bool(false)\n' +
+				'exists: bool(true)\n' +
+				'\n' +
+				'->g: NULL\n' +
+				'[\'g\']: NULL\n' +
 				'isset: bool(false)\n' +
 				'empty: bool(true)\n' +
 				'exists: bool(false)\n' +
