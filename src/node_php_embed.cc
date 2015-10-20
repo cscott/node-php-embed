@@ -224,14 +224,16 @@ zend_module_entry node_php_embed_module_entry = {
 /** Node module housekeeping */
 static void ModuleShutdown(void *arg);
 
+#ifdef ZTS
+static void ***tsrm_ls;
+#endif
 static bool node_php_embed_inited = false;
 static void node_php_embed_ensure_init(void) {
     if (node_php_embed_inited) {
         return;
     }
     node_php_embed_inited = true;
-    TSRMLS_FETCH();
-    char *argv[] = { };
+    char *argv[] = { NULL };
     int argc = 0;
     php_embed_init(argc, argv PTSRMLS_CC);
     // shutdown the initially-created request
