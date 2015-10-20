@@ -56,6 +56,7 @@ public:
     // V8 data structures here, so everything we need for input and output
     // should go on `this`.
     void Execute(MessageChannel &messageChannel) {
+        TRACE("> PhpRequestWorker");
         TSRMLS_FETCH();
         if (php_request_startup(TSRMLS_C) == FAILURE) {
             Nan::ThrowError("can't create request");
@@ -89,6 +90,7 @@ public:
         // freeing the PHP size.
         ClearAllPhpIds();
         php_request_shutdown(NULL);
+        TRACE("< PhpRequestWorker");
     }
     // Executed when the async work is complete.
     // This function will be run inside the main event loop
@@ -111,6 +113,7 @@ private:
 /* PHP extension metadata */
 
 static int node_php_embed_ub_write(const char *str, unsigned int str_length TSRMLS_DC) {
+    TRACE(">");
     // Fetch the ExecutionStream object for this thread.
     AsyncMessageWorker::MessageChannel *messageChannel = NODE_PHP_EMBED_G(messageChannel);
     PhpRequestWorker *worker = (PhpRequestWorker *)
@@ -124,6 +127,7 @@ static int node_php_embed_ub_write(const char *str, unsigned int str_length TSRM
     buf.SetString(str, str_length, 1);
     call_user_function(EG(function_table), stream.PtrPtr(), &method,
                        retval.Ptr(), 1, buf.PtrPtr() TSRMLS_CC);
+    TRACE("<");
     return str_length;
 }
 
@@ -135,6 +139,7 @@ static void node_php_embed_flush(void *server_context) {
 
 static void node_php_embed_register_server_variables(zval *track_vars_array TSRMLS_DC)
 {
+    TRACE(">");
     // Fetch the ExecutionStream object for this thread.
     AsyncMessageWorker::MessageChannel *messageChannel = NODE_PHP_EMBED_G(messageChannel);
     PhpRequestWorker *worker = (PhpRequestWorker *)
@@ -149,17 +154,21 @@ static void node_php_embed_register_server_variables(zval *track_vars_array TSRM
     char contextName[] = { "CONTEXT" };
     php_register_variable_ex(contextName, context.Transfer(TSRMLS_C), track_vars_array TSRMLS_CC);
     // XXX call a JS function passing in $_SERVER to allow init?
+    TRACE("<");
 }
 
 NAN_METHOD(setIniPath) {
+    TRACE(">");
     REQUIRE_ARGUMENT_STRING(0, iniPath);
     if (php_embed_module.php_ini_path_override) {
         delete[] php_embed_module.php_ini_path_override;
     }
     php_embed_module.php_ini_path_override = strdup(*iniPath);
+    TRACE("<");
 }
 
 NAN_METHOD(request) {
+    TRACE(">");
     REQUIRE_ARGUMENTS(4);
     REQUIRE_ARGUMENT_STRING(0, source);
     if (!*source) {
@@ -177,6 +186,7 @@ NAN_METHOD(request) {
 
     node_php_embed_ensure_init();
     Nan::AsyncQueueWorker(new PhpRequestWorker(callback, stream, context, *source));
+    TRACE("<");
 }
 
 /** PHP module housekeeping */
@@ -196,7 +206,9 @@ static void node_php_embed_globals_dtor(zend_node_php_embed_globals *node_php_em
 }
 
 PHP_MINIT_FUNCTION(node_php_embed) {
+    TRACE("> PHP_MINIT_FUNCTION");
     PHP_MINIT(node_php_jsobject_class)(INIT_FUNC_ARGS_PASSTHRU);
+    TRACE("< PHP_MINIT_FUNCTION");
     return SUCCESS;
 }
 
@@ -228,6 +240,7 @@ static void node_php_embed_ensure_init(void) {
     if (node_php_embed_inited) {
         return;
     }
+    TRACE(">");
     node_php_embed_inited = true;
     char *argv[] = { NULL };
     int argc = 0;
@@ -236,9 +249,11 @@ static void node_php_embed_ensure_init(void) {
     php_request_shutdown(NULL);
     zend_startup_module(&node_php_embed_module_entry);
     node::AtExit(ModuleShutdown, NULL);
+    TRACE("<");
 }
 
 NAN_MODULE_INIT(ModuleInit) {
+    TRACE(">");
     php_embed_module.php_ini_path_override = NULL;
     php_embed_module.php_ini_ignore = true;
     php_embed_module.php_ini_ignore_cwd = true;
@@ -251,15 +266,18 @@ NAN_MODULE_INIT(ModuleInit) {
     // Export functions
     NAN_EXPORT(target, setIniPath);
     NAN_EXPORT(target, request);
+    TRACE("<");
 }
 
 void ModuleShutdown(void *arg) {
+    TRACE(">");
     TSRMLS_FETCH();
     php_request_startup(TSRMLS_C);
     php_embed_shutdown(TSRMLS_C);
     if (php_embed_module.php_ini_path_override) {
         delete[] php_embed_module.php_ini_path_override;
     }
+    TRACE("<");
 }
 
 NODE_MODULE(node_php_embed, ModuleInit)

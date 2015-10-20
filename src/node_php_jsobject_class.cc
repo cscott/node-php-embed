@@ -56,6 +56,7 @@ public:
     }
 protected:
     virtual void InJs(ObjectMapper *m) {
+        TRACE("> JsHasPropertyMsg");
         retval_.SetBool(false);
         v8::Local<v8::Object> jsObj = Nan::To<v8::Object>(object_.ToJs(m))
             .ToLocalChecked();
@@ -99,6 +100,7 @@ protected:
                 }
             }
         }
+        TRACE("< JsHasPropertyMsg");
     }
 };
 
@@ -106,6 +108,7 @@ protected:
 
 PHP_METHOD(JsObject, __isset) {
     zval *member;
+    TRACE(">");
     PARSE_PARAMS(__isset, "z/", &member);
     convert_to_string(member);
     JsHasPropertyMsg msg(obj->channel, obj->id, member, 0);
@@ -113,6 +116,7 @@ PHP_METHOD(JsObject, __isset) {
     msg.WaitForResponse();
     THROW_IF_EXCEPTION("JS exception thrown during __isset of \"%*s\"",
                        Z_STRLEN_P(member), Z_STRVAL_P(member));
+    TRACE("<");
     RETURN_BOOL(msg.retval_.AsBool());
 }
 
@@ -125,6 +129,7 @@ static int node_php_jsobject_has_property(zval *object, zval *member, int has_se
      * 1 (set) whether property exists and is true-ish  - empty()
      * 2 (exists) whether property exists               - property_exists()
      */
+    TRACE(">");
     if (Z_TYPE_P(member) != IS_STRING) {
         return false;
     }
@@ -135,6 +140,7 @@ static int node_php_jsobject_has_property(zval *object, zval *member, int has_se
     msg.WaitForResponse();
     // ok, result is in msg.retval_ or msg.exception_
     if (msg.HasException()) { return false; /* sigh */ }
+    TRACE("<");
     return msg.retval_.AsBool();
 }
 #endif /* USE_MAGIC_ISSET */
@@ -150,6 +156,7 @@ public:
     }
 protected:
     virtual void InJs(ObjectMapper *m) {
+        TRACE("> JsReadPropertyMsg");
         v8::Local<v8::Object> jsObj = Nan::To<v8::Object>(object_.ToJs(m))
             .ToLocalChecked();
         v8::Local<v8::String> jsKey = Nan::To<v8::String>(member_.ToJs(m))
@@ -165,11 +172,13 @@ protected:
         } else {
             retval_.SetNull();
         }
+        TRACE("< JsReadPropertyMsg");
     }
 };
 
 
 PHP_METHOD(JsObject, __get) {
+    TRACE(">");
     zval *member;
     PARSE_PARAMS(__get, "z/", &member);
     convert_to_string(member);
@@ -179,6 +188,7 @@ PHP_METHOD(JsObject, __get) {
     THROW_IF_EXCEPTION("JS exception thrown during __get of \"%*s\"",
                        Z_STRLEN_P(member), Z_STRVAL_P(member));
     msg.retval_.ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
+    TRACE("<");
 }
 
 class JsWritePropertyMsg : public MessageToJs {
@@ -192,6 +202,7 @@ public:
     }
 protected:
     virtual void InJs(ObjectMapper *m) {
+        TRACE("> HasPropertyMsg");
         v8::Local<v8::Object> jsObj = Nan::To<v8::Object>(object_.ToJs(m))
             .ToLocalChecked();
         v8::Local<v8::String> jsKey = Nan::To<v8::String>(member_.ToJs(m))
@@ -201,11 +212,13 @@ protected:
         if (Nan::Set(jsObj, jsKey, jsVal).FromMaybe(false)) {
             retval_.SetBool(true);
         }
+        TRACE("< HasPropertyMsg");
     }
 };
 
 PHP_METHOD(JsObject, __set) {
     zval *member; zval *value;
+    TRACE(">");
     PARSE_PARAMS(__set, "z/z", &member, &value);
     convert_to_string(member);
     JsWritePropertyMsg msg(obj->channel, obj->id, member, value);
@@ -214,6 +227,7 @@ PHP_METHOD(JsObject, __set) {
     THROW_IF_EXCEPTION("JS exception thrown during __set of \"%*s\"",
                        Z_STRLEN_P(member), Z_STRVAL_P(member));
     msg.retval_.ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
+    TRACE("<");
 }
 
 class JsDeletePropertyMsg : public MessageToJs {
@@ -226,6 +240,7 @@ public:
     }
 protected:
     virtual void InJs(ObjectMapper *m) {
+        TRACE("> DeletePropertyMsg");
         v8::Local<v8::Object> jsObj = Nan::To<v8::Object>(object_.ToJs(m))
             .ToLocalChecked();
         v8::Local<v8::String> jsKey = Nan::To<v8::String>(member_.ToJs(m))
@@ -234,11 +249,13 @@ protected:
         if (Nan::Delete(jsObj, jsKey).FromMaybe(false)) {
             retval_.SetBool(true);
         }
+        TRACE("< DeletePropertyMsg");
     }
 };
 
 PHP_METHOD(JsObject, __unset) {
     zval *member;
+    TRACE(">");
     PARSE_PARAMS(__unset, "z/", &member);
     convert_to_string(member);
     JsDeletePropertyMsg msg(obj->channel, obj->id, member);
@@ -247,6 +264,7 @@ PHP_METHOD(JsObject, __unset) {
     THROW_IF_EXCEPTION("JS exception thrown during __unset of \"%*s\"",
                        Z_STRLEN_P(member), Z_STRVAL_P(member));
     msg.retval_.ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
+    TRACE("<");
 }
 
 class JsInvokeMethodMsg : public MessageToJs {
@@ -265,6 +283,7 @@ class JsInvokeMethodMsg : public MessageToJs {
     Value &Argv(int n) { return argv_[n]; }
  protected:
     virtual void InJs(ObjectMapper *m) {
+        TRACE("> JsInvokeMethodMsg");
         Nan::MaybeLocal<v8::Object> jsObj =
             Nan::To<v8::Object>(object_.ToJs(m));
         if (jsObj.IsEmpty()) {
@@ -291,11 +310,13 @@ class JsInvokeMethodMsg : public MessageToJs {
         if (!result.IsEmpty()) {
             retval_.Set(m, result.ToLocalChecked());
         }
+        TRACE("< JsInvokeMethodMsg");
     }
 };
 
 PHP_METHOD(JsObject, __call) {
     zval *member; zval *args;
+    TRACE(">");
     PARSE_PARAMS(__unset, "z/a", &member, &args);
     convert_to_string(member);
     HashTable *arrht = Z_ARRVAL_P(args);
@@ -315,6 +336,7 @@ PHP_METHOD(JsObject, __call) {
     THROW_IF_EXCEPTION("JS exception thrown during __call of \"%*s\"",
                        Z_STRLEN_P(member), Z_STRVAL_P(member));
     msg.retval_.ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
+    TRACE("<");
 }
 
 
@@ -324,25 +346,30 @@ PHP_METHOD(JsObject, __call) {
  * for dimensions as well, so that $obj['foo'] acts like $obj->foo. */
 
 static int node_php_jsobject_has_dimension(zval *obj, zval *idx, int chk_type TSRMLS_DC) {
+    TRACE(">");
     // thunk!
     if (chk_type == 0) { chk_type = 2; }
     // use standard has_property method with new chk_type
     return node_php_jsobject_handlers.has_property(obj, idx, chk_type ZEND_HASH_KEY_NULL TSRMLS_CC);
 }
 static zval *node_php_jsobject_read_dimension(zval *obj, zval *off, int type TSRMLS_DC) {
+    TRACE(">");
     // use standard read_property method
     return node_php_jsobject_handlers.read_property(obj, off, type ZEND_HASH_KEY_NULL TSRMLS_CC);
 }
 static void node_php_jsobject_write_dimension(zval *obj, zval *off, zval *val TSRMLS_DC) {
+    TRACE(">");
     // use standard write_property method
     node_php_jsobject_handlers.write_property(obj, off, val ZEND_HASH_KEY_NULL TSRMLS_CC);
 }
 static void node_php_jsobject_unset_dimension(zval *obj, zval *off TSRMLS_DC) {
+    TRACE(">");
     // use standard unset_property method
     node_php_jsobject_handlers.unset_property(obj, off ZEND_HASH_KEY_NULL TSRMLS_CC);
 }
 
 static void node_php_jsobject_free_storage(void *object, zend_object_handle handle TSRMLS_DC) {
+    TRACE(">");
     node_php_jsobject *c = (node_php_jsobject *) object;
 
 #if 0
@@ -369,9 +396,11 @@ static void node_php_jsobject_free_storage(void *object, zend_object_handle hand
     // another JS->PHP call first, which would revive the PHP-side wrapper.
 
     efree(object);
+    TRACE("<");
 }
 
 static zend_object_value node_php_jsobject_new(zend_class_entry *ce TSRMLS_DC) {
+    TRACE(">");
     zend_object_value retval;
     node_php_jsobject *c;
 
@@ -382,10 +411,12 @@ static zend_object_value node_php_jsobject_new(zend_class_entry *ce TSRMLS_DC) {
     retval.handle = zend_objects_store_put(c, NULL, (zend_objects_free_object_storage_t) node_php_jsobject_free_storage, NULL TSRMLS_CC);
     retval.handlers = &node_php_jsobject_handlers;
 
+    TRACE("<");
     return retval;
 }
 
 void node_php_embed::node_php_jsobject_create(zval *res, JsMessageChannel *channel, objid_t id TSRMLS_DC) {
+    TRACE(">");
     node_php_jsobject *c;
 
     object_init_ex(res, php_ce_jsobject);
@@ -400,15 +431,18 @@ void node_php_embed::node_php_jsobject_create(zval *res, JsMessageChannel *chann
 
     ctx->node_php_jsobjects.push_front(c);
 #endif
+    TRACE("<");
 }
 
 #define STUB_METHOD(name)                                                \
 PHP_METHOD(JsObject, name) {                                             \
+    TRACE(">");                                                          \
     zend_throw_exception(                                                \
         zend_exception_get_default(TSRMLS_C),                            \
         "Can't directly construct, serialize, or unserialize JsObject.", \
         0 TSRMLS_CC                                                      \
     );                                                                   \
+    TRACE("<");                                                          \
     RETURN_FALSE;                                                        \
 }
 
@@ -456,6 +490,7 @@ static const zend_function_entry node_php_jsobject_methods[] = {
 
 
 PHP_MINIT_FUNCTION(node_php_jsobject_class) {
+    TRACE("> PHP_MINIT_FUNCTION");
     zend_class_entry ce;
     /* JsObject Class */
     INIT_CLASS_ENTRY(ce, "JsObject", node_php_jsobject_methods);
@@ -488,5 +523,6 @@ PHP_MINIT_FUNCTION(node_php_jsobject_class) {
     node_php_jsobject_handlers.has_dimension = node_php_jsobject_has_dimension;
     node_php_jsobject_handlers.unset_dimension = node_php_jsobject_unset_dimension;
 
+    TRACE("< PHP_MINIT_FUNCTION");
     return SUCCESS;
 }
