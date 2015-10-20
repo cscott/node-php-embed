@@ -66,49 +66,50 @@ describe('Passing context object from JS to PHP', function() {
 				f: '1'
 			}
 		}).then(function(v) {
-			out.toString().should.equal(
-				'->a: int(0)\n' +
-				'[\'a\']: int(0)\n' +
-				'isset: bool(true)\n' +
-				'empty: bool(true)\n' +
-				'exists: bool(true)\n' +
-				'\n' +
-				'->b: int(42)\n' +
-				'[\'b\']: int(42)\n' +
-				'isset: bool(true)\n' +
-				'empty: bool(false)\n' +
-				'exists: bool(true)\n' +
-				'\n' +
-				'->c: NULL\n' +
-				'[\'c\']: NULL\n' +
-				'isset: bool(false)\n' +
-				'empty: bool(true)\n' +
-				'exists: bool(true)\n' +
-				'\n' +
-				'->d: NULL\n' +
-				'[\'d\']: NULL\n' +
-				'isset: bool(false)\n' +
-				'empty: bool(true)\n' +
-				'exists: bool(true)\n' +
-				'\n' +
-				'->e: string(1) "0"\n' +
-				'[\'e\']: string(1) "0"\n' +
-				'isset: bool(true)\n' +
-				'empty: bool(true)\n' +
-				'exists: bool(true)\n' +
-				'\n' +
-				'->f: string(1) "1"\n' +
-				'[\'f\']: string(1) "1"\n' +
-				'isset: bool(true)\n' +
-				'empty: bool(false)\n' +
-				'exists: bool(true)\n' +
-				'\n' +
-				'->g: NULL\n' +
-				'[\'g\']: NULL\n' +
-				'isset: bool(false)\n' +
-				'empty: bool(true)\n' +
-				'exists: bool(false)\n' +
-				'\n'
+			out.toString().should.equal([
+				'->a: int(0)',
+				'[\'a\']: int(0)',
+				'isset: bool(true)',
+				'empty: bool(true)',
+				'exists: bool(true)',
+				'',
+				'->b: int(42)',
+				'[\'b\']: int(42)',
+				'isset: bool(true)',
+				'empty: bool(false)',
+				'exists: bool(true)',
+				'',
+				'->c: NULL',
+				'[\'c\']: NULL',
+				'isset: bool(false)',
+				'empty: bool(true)',
+				'exists: bool(true)',
+				'',
+				'->d: NULL',
+				'[\'d\']: NULL',
+				'isset: bool(false)',
+				'empty: bool(true)',
+				'exists: bool(true)',
+				'',
+				'->e: string(1) "0"',
+				'[\'e\']: string(1) "0"',
+				'isset: bool(true)',
+				'empty: bool(true)',
+				'exists: bool(true)',
+				'',
+				'->f: string(1) "1"',
+				'[\'f\']: string(1) "1"',
+				'isset: bool(true)',
+				'empty: bool(false)',
+				'exists: bool(true)',
+				'',
+				'->g: NULL',
+				'[\'g\']: NULL',
+				'isset: bool(false)',
+				'empty: bool(true)',
+				'exists: bool(false)',
+				'',
+				''].join('\n')
 			);
 		});
     });
@@ -119,7 +120,84 @@ describe('Passing context object from JS to PHP', function() {
 			throw new Error('boo');
 		} });
 		return php.request({
-			source: "call_user_func(function () { try { var_dump($_SERVER['CONTEXT']->a); } catch (Exception $e) { echo 'exception caught'; } })",
+			source: [
+				"call_user_func(function () {",
+				"  try {",
+				"    var_dump($_SERVER['CONTEXT']->a);",
+				"  } catch (Exception $e) {",
+				"    echo 'exception caught';",
+				"  }",
+				"})"].join('\n'),
+			stream: out,
+			context: context
+		}).then(function() {
+			out.toString().should.equal('exception caught');
+		});
+	});
+	it('should implement __set and __unset', function() {
+		var out = new StringStream();
+		var context = { a: 42 };
+		Object.defineProperty(context, 'b', {
+			get: function() { return 13; },
+			set: function(v) { this.a = v; }
+		});
+		return php.request({
+			source: [
+				"call_user_func(function () {",
+				"  $c = $_SERVER['CONTEXT'];",
+				"  echo 'a is '; var_dump($c->a);",
+				"  echo 'b is '; var_dump($c->b);",
+				"  $c->a = 1;",
+				"  echo 'a is '; var_dump($c->a);",
+				"  echo 'b is '; var_dump($c->b);",
+				"  $c->b = 2;",
+				"  echo 'a is '; var_dump($c->a);",
+				"  echo 'b is '; var_dump($c->b);",
+				"  $c['b'] = 3;",
+				"  echo 'a is '; var_dump($c->a);",
+				"  echo 'b is '; var_dump($c->b);",
+				"  unset($c->a);",
+				"  echo 'a is '; var_dump($c->a);",
+				"  echo 'exists? '; var_dump(property_exists($c, 'a'));",
+				"  try {",
+				"    unset($c->b);",
+				"  } catch (Exception $e) {",
+				"    echo 'exception caught';",
+				"  }",
+				"})"].join('\n'),
+			stream: out,
+			context: context
+		}).then(function() {
+			out.toString().should.equal([
+				'a is int(42)',
+				'b is int(13)',
+				'a is int(1)',
+				'b is int(13)',
+				'a is int(2)',
+				'b is int(13)',
+				'a is int(3)',
+				'b is int(13)',
+				'a is NULL',
+				'exists? bool(false)',
+				'exception caught'
+			].join('\n'));
+		});
+	});
+	it('should handle exceptions in setters', function() {
+		var out = new StringStream();
+		var context = {};
+		Object.defineProperty(context, 'a', { set: function() {
+			throw new Error('boo');
+		} });
+		return php.request({
+			source: [
+				"call_user_func(function () {",
+				"  try {",
+				"    $_SERVER['CONTEXT']->a = 42;",
+				"  } catch (Exception $e) {",
+				"    echo 'exception caught';",
+				"  }",
+				"})"].join('\n'),
 			stream: out,
 			context: context
 		}).then(function() {

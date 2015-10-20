@@ -23,8 +23,26 @@ zend_class_entry *php_ce_jsobject;
 /* Object Handlers */
 static zend_object_handlers node_php_jsobject_handlers;
 
+/* Helpful macros for common tasks in PHP magic methods. */
+
+#define PARSE_PARAMS(method, ...)                                       \
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, __VA_ARGS__) == FAILURE) { \
+        zend_throw_exception(zend_exception_get_default(TSRMLS_C), "bad args to " #method, 0 TSRMLS_CC); \
+        return;                                                         \
+    }                                                                   \
+    node_php_jsobject *obj = (node_php_jsobject *)                      \
+        zend_object_store_get_object(this_ptr TSRMLS_CC)
+
+#define THROW_IF_EXCEPTION(...)                                 \
+    do { if (msg.HasException()) {                              \
+        zend_throw_exception_ex(                                \
+            zend_exception_get_default(TSRMLS_C), 0 TSRMLS_CC,  \
+            __VA_ARGS__);                                       \
+        return;                                                 \
+    } } while (0)
 
 /* JsObject handlers */
+
 class JsHasPropertyMsg : public MessageToJs {
     Value object_;
     Value member_;
@@ -87,26 +105,13 @@ protected:
 
 PHP_METHOD(JsObject, __isset) {
     zval *member;
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z/", &member) == FAILURE) {
-        zend_throw_exception(
-            zend_exception_get_default(TSRMLS_C),
-            "bad property name for __isset", 0 TSRMLS_CC);
-        return;
-    }
+    PARSE_PARAMS(__isset, "z/", &member);
     convert_to_string(member);
-    node_php_jsobject *obj = (node_php_jsobject *)
-        zend_object_store_get_object(this_ptr TSRMLS_CC);
     JsHasPropertyMsg msg(obj->channel, obj->id, member, 0);
     obj->channel->Send(&msg);
     msg.WaitForResponse();
-    // ok, result is in msg.retval_ or msg.exception_
-    if (msg.HasException()) {
-         zend_throw_exception_ex(
-            zend_exception_get_default(TSRMLS_C), 0 TSRMLS_CC,
-            "JS exception thrown during __isset of \"%*s\"",
-            Z_STRLEN_P(member), Z_STRVAL_P(member));
-        return;
-    }
+    THROW_IF_EXCEPTION("JS exception thrown during __isset of \"%*s\"",
+                       Z_STRLEN_P(member), Z_STRVAL_P(member));
     RETURN_BOOL(msg.retval_.AsBool());
 }
 
@@ -165,29 +170,88 @@ protected:
 
 PHP_METHOD(JsObject, __get) {
     zval *member;
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z/", &member) == FAILURE) {
-        zend_throw_exception(zend_exception_get_default(TSRMLS_C), "bad property name", 0 TSRMLS_CC);
-        return;
-    }
+    PARSE_PARAMS(__get, "z/", &member);
     convert_to_string(member);
-    node_php_jsobject *obj = (node_php_jsobject *)
-        zend_object_store_get_object(this_ptr TSRMLS_CC);
     JsReadPropertyMsg msg(obj->channel, obj->id, member, 0);
     obj->channel->Send(&msg);
     msg.WaitForResponse();
-    // ok, result is in msg.retval_ or msg.exception_
-    if (msg.HasException()) {
-         zend_throw_exception_ex(
-            zend_exception_get_default(TSRMLS_C), 0 TSRMLS_CC,
-            "JS exception thrown during __get of \"%*s\"",
-            Z_STRLEN_P(member), Z_STRVAL_P(member));
-        return;
-    }
+    THROW_IF_EXCEPTION("JS exception thrown during __get of \"%*s\"",
+                       Z_STRLEN_P(member), Z_STRVAL_P(member));
     msg.retval_.ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
 }
 
+class JsWritePropertyMsg : public MessageToJs {
+    Value object_;
+    Value member_;
+    Value value_;
+public:
+    JsWritePropertyMsg(ObjectMapper* m, objid_t objId, zval *member, zval *value)
+        : MessageToJs(m), object_(), member_(m, member), value_(m, value) {
+        object_.SetJsObject(objId);
+    }
+protected:
+    virtual void InJs(ObjectMapper *m) {
+        v8::Local<v8::Object> jsObj = Nan::To<v8::Object>(object_.ToJs(m))
+            .ToLocalChecked();
+        v8::Local<v8::String> jsKey = Nan::To<v8::String>(member_.ToJs(m))
+            .ToLocalChecked();
+        v8::Local<v8::Value> jsVal = value_.ToJs(m);
+
+        if (Nan::Set(jsObj, jsKey, jsVal).FromMaybe(false)) {
+            retval_.SetBool(true);
+        }
+    }
+};
+
+PHP_METHOD(JsObject, __set) {
+    zval *member; zval *value;
+    PARSE_PARAMS(__set, "z/z", &member, &value);
+    convert_to_string(member);
+    JsWritePropertyMsg msg(obj->channel, obj->id, member, value);
+    obj->channel->Send(&msg);
+    msg.WaitForResponse();
+    THROW_IF_EXCEPTION("JS exception thrown during __set of \"%*s\"",
+                       Z_STRLEN_P(member), Z_STRVAL_P(member));
+    msg.retval_.ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
+}
+
+class JsDeletePropertyMsg : public MessageToJs {
+    Value object_;
+    Value member_;
+public:
+    JsDeletePropertyMsg(ObjectMapper* m, objid_t objId, zval *member)
+        : MessageToJs(m), object_(), member_(m, member) {
+        object_.SetJsObject(objId);
+    }
+protected:
+    virtual void InJs(ObjectMapper *m) {
+        v8::Local<v8::Object> jsObj = Nan::To<v8::Object>(object_.ToJs(m))
+            .ToLocalChecked();
+        v8::Local<v8::String> jsKey = Nan::To<v8::String>(member_.ToJs(m))
+            .ToLocalChecked();
+
+        if (Nan::Delete(jsObj, jsKey).FromMaybe(false)) {
+            retval_.SetBool(true);
+        }
+    }
+};
+
+PHP_METHOD(JsObject, __unset) {
+    zval *member;
+    PARSE_PARAMS(__unset, "z/", &member);
+    convert_to_string(member);
+    JsDeletePropertyMsg msg(obj->channel, obj->id, member);
+    obj->channel->Send(&msg);
+    msg.WaitForResponse();
+    THROW_IF_EXCEPTION("JS exception thrown during __unset of \"%*s\"",
+                       Z_STRLEN_P(member), Z_STRVAL_P(member));
+    msg.retval_.ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
+}
+
+
 /* Use (slightly thunked) versions of the has/read/write property handlers
  * for dimensions as well, so that $obj['foo'] acts like $obj->foo. */
+
 static int node_php_jsobject_has_dimension(zval *obj, zval *idx, int chk_type TSRMLS_DC) {
     // thunk!
     if (chk_type == 0) { chk_type = 2; }
@@ -285,10 +349,19 @@ STUB_METHOD(__construct)
 STUB_METHOD(__sleep)
 STUB_METHOD(__wakeup)
 
-ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_one_arg, 0, 0, 1)
+#if USE_MAGIC_ISSET
+ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_isset_args, 0, 0, 1)
     ZEND_ARG_INFO(0, member)
 ZEND_END_ARG_INFO()
-ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_one_arg_retref, 0, 1, 1)
+#endif
+ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_get_args, 0, 1/*return by ref*/, 1)
+    ZEND_ARG_INFO(0, member)
+ZEND_END_ARG_INFO()
+ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_set_args, 0, 0, 2)
+    ZEND_ARG_INFO(0, member)
+    ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_unset_args, 0, 0, 1)
     ZEND_ARG_INFO(0, member)
 ZEND_END_ARG_INFO()
 
@@ -297,9 +370,11 @@ static const zend_function_entry node_php_jsobject_methods[] = {
     PHP_ME(JsObject, __sleep,     NULL, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
     PHP_ME(JsObject, __wakeup,    NULL, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
 #if USE_MAGIC_ISSET
-    PHP_ME(JsObject, __isset, node_php_jsobject_one_arg, ZEND_ACC_PUBLIC)
+    PHP_ME(JsObject, __isset, node_php_jsobject_isset_args, ZEND_ACC_PUBLIC)
 #endif
-    PHP_ME(JsObject, __get, node_php_jsobject_one_arg_retref, ZEND_ACC_PUBLIC)
+    PHP_ME(JsObject, __get, node_php_jsobject_get_args, ZEND_ACC_PUBLIC)
+    PHP_ME(JsObject, __set, node_php_jsobject_set_args, ZEND_ACC_PUBLIC)
+    PHP_ME(JsObject, __unset, node_php_jsobject_unset_args, ZEND_ACC_PUBLIC)
     ZEND_FE_END
 };
 
