@@ -138,7 +138,37 @@ script:
 - if test "$RELEASE" = "false"; then DEBUG='--debug' ; fi
 - if test -z "$EXTERNAL_LIBPHP" ; then npm install --build-from-source $LIBCRYPT $DEBUG; else npm install --build-from-source --libphp5=external $DEBUG; fi
 - node-pre-gyp package testpackage
-- npm test
+# OSX malloc debugging
+- |
+  if test "$TRAVIS_OS_NAME" = "osx"; then
+    echo DISABLED export MallocStackLogging=1
+    echo DISABLED export MallocStackLoggingNoCompact=1
+    export MallocScribble=1
+    export MallocPreScribble=1
+    export MallocGuardEdges=1
+    export MallocCheckHeapStart=1
+    export MallocCheckHeapEach=1
+    export DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib
+  fi
+- |
+  if npm test ; then
+    echo "Test successful.  Publishable=$PUBLISHABLE"
+  else
+    echo "Test failed, refusing to publish."
+    PUBLISHABLE=false
+    false
+  fi
+- |
+  if test "$TRAVIS_OS_NAME" = "osx"; then
+    unset MallocStackLogging
+    unset MallocStackLoggingNoCompact
+    unset MallocScribble
+    unset MallocPreScribble
+    unset MallocGuardEdges
+    unset MallocCheckHeapStart
+    unset MallocCheckHeapEach
+    unset DYLD_INSERT_LIBRARIES
+  fi
 - export PUBLISH=false
 # Normal case: tagged builds trigger 32-bit and 64-bit x86 builds
 - if scripts/validate_tag.sh --check ; then PUBLISH=true; fi
