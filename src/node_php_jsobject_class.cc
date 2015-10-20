@@ -2,16 +2,17 @@
 
 #include <nan.h>
 extern "C" {
-#include "php.h"
-#include "Zend/zend.h"
-#include "Zend/zend_exceptions.h"
-#include "Zend/zend_types.h"
+#include <main/php.h>
+#include <Zend/zend.h>
+#include <Zend/zend_exceptions.h>
+#include <Zend/zend_types.h>
 }
 
 #include "node_php_jsobject_class.h"
+
+#include "macros.h"
 #include "messages.h"
 #include "values.h"
-#include "macros.h"
 
 #define USE_MAGIC_ISSET 0
 
@@ -248,6 +249,76 @@ PHP_METHOD(JsObject, __unset) {
     msg.retval_.ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
 }
 
+class JsInvokeMethodMsg : public MessageToJs {
+    Value object_;
+    Value member_;
+    ulong argc_;
+    Value *argv_;
+ public:
+    JsInvokeMethodMsg(ObjectMapper *m, objid_t objId, zval *member, ulong argc, zval **argv)
+        : MessageToJs(m), object_(), member_(m, member), argc_(argc), argv_(Value::NewArray(m, argc, argv)) {
+        object_.SetJsObject(objId);
+    }
+    virtual ~JsInvokeMethodMsg() { delete[] argv_; }
+    // this is a bit of a hack to allow constructing a call with a Buffer
+    // as an argument.
+    Value &Argv(int n) { return argv_[n]; }
+ protected:
+    virtual void InJs(ObjectMapper *m) {
+        Nan::MaybeLocal<v8::Object> jsObj =
+            Nan::To<v8::Object>(object_.ToJs(m));
+        if (jsObj.IsEmpty()) {
+            return Nan::ThrowTypeError("receiver is not an object");
+        }
+
+        Nan::MaybeLocal<v8::Object> method = Nan::To<v8::Object>(
+            Nan::Get(jsObj.ToLocalChecked(), member_.ToJs(m))
+            .FromMaybe<v8::Value>(Nan::Undefined())
+        );
+        if (method.IsEmpty()) {
+            return Nan::ThrowTypeError("method is not an object");
+        }
+        v8::Local<v8::Value> *argv =
+            static_cast<v8::Local<v8::Value>*>
+            (alloca(sizeof(v8::Local<v8::Value>) * argc_));
+        for (ulong i=0; i<argc_; i++) {
+            new(&argv[i]) v8::Local<v8::Value>;
+            argv[i] = argv_[i].ToJs(m);
+        }
+        Nan::MaybeLocal<v8::Value> result =
+            Nan::CallAsFunction(method.ToLocalChecked(), jsObj.ToLocalChecked(),
+                                argc_, argv);
+        if (!result.IsEmpty()) {
+            retval_.Set(m, result.ToLocalChecked());
+        }
+    }
+};
+
+PHP_METHOD(JsObject, __call) {
+    zval *member; zval *args;
+    PARSE_PARAMS(__unset, "z/a", &member, &args);
+    convert_to_string(member);
+    HashTable *arrht = Z_ARRVAL_P(args);
+    ulong argc = zend_hash_next_free_element(arrht); // maximum index
+    zval **argv = static_cast<zval**>(alloca(sizeof(zval*) * argc));
+    for (ulong i=0; i<argc; i++) {
+        zval **z;
+        if (zend_hash_index_find(arrht, i, (void**) &z)==FAILURE) {
+            argv[i] = EG(uninitialized_zval_ptr);
+        } else {
+            argv[i] = *z;
+        }
+    }
+    JsInvokeMethodMsg msg(obj->channel, obj->id, member, argc, argv);
+    obj->channel->Send(&msg);
+    msg.WaitForResponse();
+    THROW_IF_EXCEPTION("JS exception thrown during __call of \"%*s\"",
+                       Z_STRLEN_P(member), Z_STRVAL_P(member));
+    msg.retval_.ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
+}
+
+
+
 
 /* Use (slightly thunked) versions of the has/read/write property handlers
  * for dimensions as well, so that $obj['foo'] acts like $obj->foo. */
@@ -364,6 +435,10 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_unset_args, 0, 0, 1)
     ZEND_ARG_INFO(0, member)
 ZEND_END_ARG_INFO()
+ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_call_args, 0, 1/*return by ref*/, 1)
+    ZEND_ARG_INFO(0, member)
+    ZEND_ARG_INFO(0, args)
+ZEND_END_ARG_INFO()
 
 static const zend_function_entry node_php_jsobject_methods[] = {
     PHP_ME(JsObject, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
@@ -375,6 +450,7 @@ static const zend_function_entry node_php_jsobject_methods[] = {
     PHP_ME(JsObject, __get, node_php_jsobject_get_args, ZEND_ACC_PUBLIC)
     PHP_ME(JsObject, __set, node_php_jsobject_set_args, ZEND_ACC_PUBLIC)
     PHP_ME(JsObject, __unset, node_php_jsobject_unset_args, ZEND_ACC_PUBLIC)
+    PHP_ME(JsObject, __call, node_php_jsobject_call_args, ZEND_ACC_PUBLIC)
     ZEND_FE_END
 };
 

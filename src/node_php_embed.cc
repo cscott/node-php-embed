@@ -1,8 +1,10 @@
 #include <nan.h>
 
+extern "C" {
 #include <sapi/embed/php_embed.h>
 #include <Zend/zend_exceptions.h>
 #include <ext/standard/info.h>
+}
 
 #include "node_php_embed.h"
 #include "node_php_jsobject_class.h"
@@ -113,19 +115,15 @@ static int node_php_embed_ub_write(const char *str, unsigned int str_length TSRM
     AsyncMessageWorker::MessageChannel *messageChannel = NODE_PHP_EMBED_G(messageChannel);
     PhpRequestWorker *worker = (PhpRequestWorker *)
         (messageChannel->GetWorker());
-    ZVal stream{ZEND_FILE_LINE_C};
+    ZVal stream{ZEND_FILE_LINE_C}, buf{ZEND_FILE_LINE_C},
+        retval{ZEND_FILE_LINE_C};
     worker->GetStream().ToPhp(messageChannel, stream TSRMLS_CC);
-    zval buf; INIT_ZVAL(buf); // stack allocate a null zval as a placeholder
-    zval *args[] = { &buf };
-    JsInvokeMethodMsg msg(messageChannel, stream.Ptr(), "write", 1, args);
-    // hack the message to pass a buffer, not a string
-    // (and avoid unnecessary copying by not using an "owned buffer")
-    msg.Argv(0).SetBuffer(str, str_length);
-    messageChannel->Send(&msg);
-    // XXX wait for response
-    msg.WaitForResponse(); // XXX optional?
-    // now return value is in msg.retval_ or msg.exception_ but
-    // we'll ignore that (FIXME?)
+    // use plain zval to avoid allocating copy of method name
+    zval method; ZVAL_STRINGL(&method, "write", 5, 0);
+    // XXX need to pass 'str' as buffer, not a string, and avoid copying.
+    buf.SetString(str, str_length, 1);
+    call_user_function(EG(function_table), stream.PtrPtr(), &method,
+                       retval.Ptr(), 1, buf.PtrPtr() TSRMLS_CC);
     return str_length;
 }
 

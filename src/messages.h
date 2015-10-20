@@ -79,70 +79,7 @@ class JsMessageChannel : public ObjectMapper {
     virtual void Send(MessageToJs *m) const = 0;
 };
 
-class JsGetPropertyMsg : public MessageToJs {
-    Value obj_;
-    Value name_;
- public:
-    JsGetPropertyMsg(ObjectMapper *m, zval *obj, zval *name)
-        : MessageToJs(m), obj_(m, obj), name_(m, name) { }
- protected:
-    virtual void InJs(ObjectMapper *m) {
-        Nan::MaybeLocal<v8::Object> o = Nan::To<v8::Object>(obj_.ToJs(m));
-        if (o.IsEmpty()) {
-            return Nan::ThrowTypeError("not an object");
-        }
-        Nan::MaybeLocal<v8::Value> r =
-            Nan::Get(o.ToLocalChecked(), name_.ToJs(m));
-        if (!r.IsEmpty()) {
-            retval_.Set(m, r.ToLocalChecked());
-        }
-    }
-};
-class JsInvokeMethodMsg : public MessageToJs {
-    Value obj_;
-    Value name_;
-    int argc_;
-    Value *argv_;
- public:
-    JsInvokeMethodMsg(ObjectMapper *m, zval *obj, zval *name, int argc, zval **argv)
-        : MessageToJs(m), obj_(m, obj), name_(m, name), argc_(argc), argv_(Value::NewArray(m, argc, argv)) { }
-    JsInvokeMethodMsg(ObjectMapper *m, zval *obj, const char *name, int argc, zval **argv)
-        : MessageToJs(m), obj_(m, obj), name_(), argc_(argc), argv_(Value::NewArray(m, argc, argv)) {
-        name_.SetOwnedString(name, strlen(name));
-    }
-    virtual ~JsInvokeMethodMsg() { delete[] argv_; }
-    // this is a bit of a hack to allow constructing a call with a Buffer
-    // as an argument.
-    Value &Argv(int n) { return argv_[n]; }
- protected:
-    virtual void InJs(ObjectMapper *m) {
-        Nan::MaybeLocal<v8::Object> o = Nan::To<v8::Object>(obj_.ToJs(m));
-        if (o.IsEmpty()) {
-            return Nan::ThrowTypeError("not an object");
-        }
-        Nan::MaybeLocal<v8::Object> method = Nan::To<v8::Object>(
-            Nan::Get(o.ToLocalChecked(), name_.ToJs(m))
-            .FromMaybe<v8::Value>(Nan::Undefined())
-        );
-        if (method.IsEmpty()) {
-            return Nan::ThrowTypeError("method is not an object");
-        }
-        v8::Local<v8::Value> *argv =
-            static_cast<v8::Local<v8::Value>*>
-            (alloca(sizeof(v8::Local<v8::Value>) * argc_));
-        for (int i=0; i<argc_; i++) {
-            new(&argv[i]) v8::Local<v8::Value>;
-            argv[i] = argv_[i].ToJs(m);
-        }
-        Nan::MaybeLocal<v8::Value> result =
-            Nan::CallAsFunction(method.ToLocalChecked(), o.ToLocalChecked(),
-                                argc_, argv);
-        if (!result.IsEmpty()) {
-            retval_.Set(m, result.ToLocalChecked());
-        }
-    }
-};
-
+// example of MessageToPhp
 class PhpGetPropertyMsg : public MessageToPhp {
     Value obj_;
     Value name_;
