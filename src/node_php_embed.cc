@@ -40,7 +40,7 @@ public:
         size_t size = strlen(source) + 1;
         source_ = new char[size];
         memcpy(source_, source, size);
-        JsOnlyMapper mapper(this);
+        JsStartupMapper mapper(this);
         stream_.Set(&mapper, stream);
         context_.Set(&mapper, context);
     }

@@ -5,6 +5,7 @@
 #include <list>
 #include <unordered_map>
 #include "messages.h"
+#include "node_php_phpobject_class.h"
 #include "node_php_jsobject_class.h"
 
 namespace node_php_embed {
@@ -56,10 +57,18 @@ namespace node_php_embed {
   }
   v8::Local<v8::Object> JsObjForId(objid_t id) {
       Nan::EscapableHandleScope scope;
-      // XXX if doesn't exist, then make a wrapper (and store it in the maps)
-      return scope.Escape(Nan::To<v8::Object>(
-        GetFromPersistent(id)
-      ).ToLocalChecked());
+      Nan::MaybeLocal<v8::Object> maybeObj =
+          Nan::To<v8::Object>(GetFromPersistent(id));
+      if (!maybeObj.IsEmpty()) {
+          return scope.Escape(maybeObj.ToLocalChecked());
+      }
+      // make a wrapper!
+      v8::Local<v8::NativeWeakMap> jsObjToId = Nan::New(jsObjToId_);
+      v8::Local<v8::Object> o = node_php_phpobject_create
+          (NULL/*XXX*/, id);
+      jsObjToId->Set(o, Nan::New(id));
+      SaveToPersistent(id, o);
+      return scope.Escape(o);
   }
   // Map PHP object to an index (PHP thread only)
   objid_t IdForPhpObj(zval *z) {
@@ -203,20 +212,14 @@ namespace node_php_embed {
 
   // Limited ObjectMapper for use during subclass initialization.
  protected:
-  class JsOnlyMapper : public ObjectMapper {
+  class JsStartupMapper : public JsObjectMapper {
   public:
-      JsOnlyMapper(AsyncMessageWorker *worker) : worker_(worker) { }
+      JsStartupMapper(AsyncMessageWorker *worker) : worker_(worker) { }
       virtual objid_t IdForJsObj(const v8::Local<v8::Object> o) {
           return worker_->IdForJsObj(o);
       }
       virtual v8::Local<v8::Object> JsObjForId(objid_t id) {
           assert(false); return Nan::New<v8::Object>();
-      }
-      virtual objid_t IdForPhpObj(zval *o) {
-          assert(false); return 0;
-      }
-      virtual zval * PhpObjForId(objid_t id TSRMLS_DC) {
-          assert(false); return NULL;
       }
   private:
       AsyncMessageWorker *worker_;

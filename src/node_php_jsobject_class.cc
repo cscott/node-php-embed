@@ -1,4 +1,5 @@
-// Inspired by v8js_v8object_class in the v8js extension.
+// A JavaScript (node/v8) object, wrapped for access by PHP code.
+// Inspired by v8js_v8object_class in the v8js PHP extension.
 
 #include <nan.h>
 extern "C" {
@@ -55,7 +56,7 @@ public:
         object_.SetJsObject(objId);
     }
 protected:
-    virtual void InJs(ObjectMapper *m) {
+    virtual void InJs(JsObjectMapper *m) {
         TRACE("> JsHasPropertyMsg");
         retval_.SetBool(false);
         v8::Local<v8::Object> jsObj = Nan::To<v8::Object>(object_.ToJs(m))
@@ -155,7 +156,7 @@ public:
         object_.SetJsObject(objId);
     }
 protected:
-    virtual void InJs(ObjectMapper *m) {
+    virtual void InJs(JsObjectMapper *m) {
         TRACE("> JsReadPropertyMsg");
         v8::Local<v8::Object> jsObj = Nan::To<v8::Object>(object_.ToJs(m))
             .ToLocalChecked();
@@ -201,7 +202,7 @@ public:
         object_.SetJsObject(objId);
     }
 protected:
-    virtual void InJs(ObjectMapper *m) {
+    virtual void InJs(JsObjectMapper *m) {
         TRACE("> HasPropertyMsg");
         v8::Local<v8::Object> jsObj = Nan::To<v8::Object>(object_.ToJs(m))
             .ToLocalChecked();
@@ -239,7 +240,7 @@ public:
         object_.SetJsObject(objId);
     }
 protected:
-    virtual void InJs(ObjectMapper *m) {
+    virtual void InJs(JsObjectMapper *m) {
         TRACE("> DeletePropertyMsg");
         v8::Local<v8::Object> jsObj = Nan::To<v8::Object>(object_.ToJs(m))
             .ToLocalChecked();
@@ -279,7 +280,7 @@ class JsInvokeMsg : public MessageToJs {
     }
     virtual ~JsInvokeMsg() { delete[] argv_; }
  protected:
-    virtual void InJs(ObjectMapper *m) {
+    virtual void InJs(JsObjectMapper *m) {
         TRACE("> JsInvokeMsg");
         Nan::MaybeLocal<v8::Object> jsObj =
             Nan::To<v8::Object>(object_.ToJs(m));

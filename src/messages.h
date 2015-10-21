@@ -19,7 +19,7 @@ class Message {
 
 class MessageToPhp : public Message {
  protected:
-    virtual void InPhp(ObjectMapper *m TSRMLS_DC) = 0;
+    virtual void InPhp(PhpObjectMapper *m TSRMLS_DC) = 0;
  public:
     MessageToPhp(ObjectMapper *m) : Message(m) { }
     void ExecutePhp(TSRMLS_D) {
@@ -31,7 +31,7 @@ class MessageToJs : public Message {
     uv_barrier_t *finish_;
  protected:
     // in JS context
-    virtual void InJs(ObjectMapper *m) = 0;
+    virtual void InJs(JsObjectMapper *m) = 0;
  public:
  MessageToJs(ObjectMapper *m) : Message(m), finish_(new uv_barrier_t) {
         uv_barrier_init(finish_, 2);
@@ -79,6 +79,11 @@ class JsMessageChannel : public ObjectMapper {
     virtual void Send(MessageToJs *m) const = 0;
 };
 
+class PhpMessageChannel : public ObjectMapper {
+ public:
+    virtual void Send(MessageToPhp *m) const = 0;
+};
+
 // example of MessageToPhp
 class PhpGetPropertyMsg : public MessageToPhp {
     Value obj_;
@@ -87,7 +92,7 @@ class PhpGetPropertyMsg : public MessageToPhp {
     PhpGetPropertyMsg(ObjectMapper *m, v8::Local<v8::Value> obj, v8::Local<v8::Value> name)
         : MessageToPhp(m), obj_(m, obj), name_(m, name) { }
  protected:
-    virtual void InPhp(ObjectMapper *m TSRMLS_DC) {
+    virtual void InPhp(PhpObjectMapper *m TSRMLS_DC) {
         ZVal obj{ZEND_FILE_LINE_C}, name{ZEND_FILE_LINE_C};
         zval *r;
         zend_class_entry *ce;

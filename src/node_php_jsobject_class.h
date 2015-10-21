@@ -1,3 +1,5 @@
+// A JavaScript (node/v8) object, wrapped for access by PHP code.
+// Inspired by v8js_v8object_class in the v8js PHP extension.
 #ifndef NODE_PHP_JSOBJECT_CLASS_H
 #define NODE_PHP_JSOBJECT_CLASS_H
 
@@ -21,7 +23,7 @@ struct node_php_jsobject {
 
 /* Create a PHP proxy for a JS object.  res should be allocated & inited,
  * and it is owned by the caller. */
-void node_php_jsobject_create(zval *res, JsMessageChannel *channel, uint32_t id TSRMLS_DC);
+void node_php_jsobject_create(zval *res, JsMessageChannel *channel, objid_t id TSRMLS_DC);
 
 }
 
