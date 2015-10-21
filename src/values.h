@@ -6,9 +6,12 @@
 #include <string>
 #include <sstream>
 
-#include "nan.h"
+#include <nan.h>
 
-#include "php.h"
+#include <main/php.h>
+
+#include "node_php_jsbuffer_class.h" /* to recognize buffers in PHP land */
+#include "macros.h"
 
 namespace node_php_embed {
 
@@ -188,13 +191,24 @@ class ZVal : public NonAssignable {
             RETURN_DOUBLE(value_);
         }
     };
+    enum OwnerType { NOT_OWNED, PHP_OWNED, CPP_OWNED };
     class Str : public Base {
     protected:
         const char *data_;
         std::size_t length_;
+        virtual OwnerType Owner() { return NOT_OWNED; }
     public:
         explicit Str(const char *data, std::size_t length)
             : data_(data), length_(length) { }
+        virtual ~Str() {
+            if (data_) {
+                switch (Owner()) {
+                case NOT_OWNED: break;
+                case PHP_OWNED: efree((void*)data_); break;
+                case CPP_OWNED: delete[] data_; break;
+                }
+            }
+        }
         virtual const char *TypeString() const { return "Str"; }
         virtual v8::Local<v8::Value> ToJs(ObjectMapper *m) const {
             Nan::EscapableHandleScope scope;
@@ -225,30 +239,32 @@ class ZVal : public NonAssignable {
             ndata[length] = 0;
             data_ = ndata;
         }
-        virtual ~OStr() {
-            if (data_) {
-                delete[] data_;
-            }
-        }
         virtual const char *TypeString() const { return "OStr"; }
+    protected:
+        virtual OwnerType Owner() { return CPP_OWNED; }
     };
     class Buf : public Str {
     public:
         Buf(const char *data, std::size_t length) : Str(data, length) { }
         virtual const char *TypeString() const { return "Buf"; }
+        virtual void ToPhp(ObjectMapper *m, zval *return_value, zval **return_value_ptr TSRMLS_DC) const {
+            node_php_jsbuffer_create(return_value, data_, length_, 1 TSRMLS_CC);
+        }
         virtual v8::Local<v8::Value> ToJs(ObjectMapper *m) const {
             Nan::EscapableHandleScope scope;
             return scope.Escape(Nan::CopyBuffer(data_, length_).ToLocalChecked());
         }
     };
-    class OBuf : public OStr {
+    class OBuf : public Buf {
     public:
-        OBuf(const char *data, std::size_t length) : OStr(data, length) { }
-        virtual const char *TypeString() const { return "OBuf"; }
-        virtual v8::Local<v8::Value> ToJs(ObjectMapper *m) const {
-            Nan::EscapableHandleScope scope;
-            return scope.Escape(Nan::CopyBuffer(data_, length_).ToLocalChecked());
+        OBuf(const char *data, std::size_t length) : Buf(NULL, length) {
+            char *tmp = new char[length];
+            memcpy(tmp, data, length);
+            data_ = tmp;
         }
+        virtual const char *TypeString() const { return "OBuf"; }
+    protected:
+        virtual OwnerType Owner() { return CPP_OWNED; }
     };
     class Obj : public Base {
         objid_t id_;
@@ -293,14 +309,14 @@ class ZVal : public NonAssignable {
     explicit Value(ObjectMapper *m, v8::Local<v8::Value> v) : type_(VALUE_EMPTY), empty_(0) {
         Set(m, v);
     }
-    explicit Value(ObjectMapper *m, zval *v) : type_(VALUE_EMPTY), empty_(0) {
-        Set(m, v);
+    explicit Value(ObjectMapper *m, zval *v TSRMLS_DC) : type_(VALUE_EMPTY), empty_(0) {
+        Set(m, v TSRMLS_CC);
     }
     template <typename T>
-    static Value *NewArray(ObjectMapper *m, int argc, T* argv) {
+    static Value *NewArray(ObjectMapper *m, int argc, T* argv TSRMLS_DC) {
         Value *result = new Value[argc];
         for (int i=0; i<argc; i++) {
-            result[i].Set(m, argv[i]);
+            result[i].Set(m, argv[i] TSRMLS_CC);
         }
         return result;
     }
@@ -332,7 +348,7 @@ class ZVal : public NonAssignable {
         // Null for all other object types.
         SetNull();
     }
-    void Set(ObjectMapper *m, zval *v) {
+    void Set(ObjectMapper *m, zval *v TSRMLS_DC) {
         long l;
         switch (Z_TYPE_P(v)) {
         default:
@@ -360,6 +376,15 @@ class ZVal : public NonAssignable {
             SetString(Z_STRVAL_P(v), Z_STRLEN_P(v));
             return;
         case IS_OBJECT:
+            // special case JsBuffer
+            if (Z_OBJCE_P(v) == php_ce_jsbuffer) {
+                node_php_jsbuffer *b = (node_php_jsbuffer *)
+                    zend_object_store_get_object(v TSRMLS_CC);
+                // since PHP blocks, it is fine to let PHP
+                // own the buffer; avoids needless copying
+                SetBuffer(b->data, b->length);
+                return;
+            }
             SetPhpObject(m, v);
             return;
             /*

@@ -74,6 +74,8 @@
     Nan::Get((source), NEW_STR(property))                                      \
         .FromMaybe((v8::Local<v8::Value>)Nan::Undefined())
 
+#if 0
+#include <nan.h>
 static NAN_INLINE int32_t CAST_INT(v8::Local<v8::Value> v, int32_t defaultValue) {
     Nan::HandleScope scope;
     return v->IsNumber() ? Nan::To<int32_t>(v).FromMaybe(defaultValue) :
@@ -90,8 +92,10 @@ static NAN_INLINE v8::Local<v8::String> CAST_STRING(v8::Local<v8::Value> v, v8::
     Nan::EscapableHandleScope scope;
     return scope.Escape(v->IsString() ? Nan::To<v8::String>(v).FromMaybe(defaultValue) : defaultValue);
 }
+#endif
 
 /* Zend helpers */
+#include <Zend/zend_modules.h>
 #if ZEND_MODULE_API_NO >= 20100409
 # define ZEND_HASH_KEY_DC , const zend_literal *key
 # define ZEND_HASH_KEY_CC , key

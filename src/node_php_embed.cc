@@ -8,6 +8,7 @@ extern "C" {
 
 #include "node_php_embed.h"
 #include "node_php_jsobject_class.h"
+#include "node_php_jsbuffer_class.h"
 
 #include "asyncmessageworker.h"
 #include "messages.h"
@@ -118,15 +119,16 @@ static int node_php_embed_ub_write(const char *str, unsigned int str_length TSRM
     AsyncMessageWorker::MessageChannel *messageChannel = NODE_PHP_EMBED_G(messageChannel);
     PhpRequestWorker *worker = (PhpRequestWorker *)
         (messageChannel->GetWorker());
-    ZVal stream{ZEND_FILE_LINE_C}, buf{ZEND_FILE_LINE_C},
-        retval{ZEND_FILE_LINE_C};
+    ZVal stream{ZEND_FILE_LINE_C}, retval{ZEND_FILE_LINE_C};
     worker->GetStream().ToPhp(messageChannel, stream TSRMLS_CC);
     // use plain zval to avoid allocating copy of method name
     zval method; ZVAL_STRINGL(&method, "write", 5, 0);
-    // XXX need to pass 'str' as buffer, not a string, and avoid copying.
-    buf.SetString(str, str_length, 1);
+    // special buffer type to pass `str` as a node buffer and avoid copying
+    zval buffer, *args[] = { &buffer }; INIT_ZVAL(buffer);
+    node_php_jsbuffer_create(&buffer, str, str_length, 0 TSRMLS_CC);
     call_user_function(EG(function_table), stream.PtrPtr(), &method,
-                       retval.Ptr(), 1, buf.PtrPtr() TSRMLS_CC);
+                       retval.Ptr(), 1, args TSRMLS_CC);
+    zval_dtor(&buffer);
     TRACE("<");
     return str_length;
 }
@@ -208,6 +210,7 @@ static void node_php_embed_globals_dtor(zend_node_php_embed_globals *node_php_em
 PHP_MINIT_FUNCTION(node_php_embed) {
     TRACE("> PHP_MINIT_FUNCTION");
     PHP_MINIT(node_php_jsobject_class)(INIT_FUNC_ARGS_PASSTHRU);
+    PHP_MINIT(node_php_jsbuffer_class)(INIT_FUNC_ARGS_PASSTHRU);
     TRACE("< PHP_MINIT_FUNCTION");
     return SUCCESS;
 }

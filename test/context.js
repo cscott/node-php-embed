@@ -19,6 +19,10 @@ StringStream.prototype.toString = function() {
 	return this._result;
 };
 
+function removeObjectIds(str) {
+	return str.replace(/object\(([^\)]*)\)#\d+/g, 'object($1)');
+}
+
 describe('Passing context object from JS to PHP', function() {
 	var php = require('../');
 	it('should pass all basic data types from JS to PHP', function() {
@@ -38,17 +42,22 @@ describe('Passing context object from JS to PHP', function() {
 				i: new Buffer('abc', 'utf8')
 			}
 		}).then(function(v) {
-			out.toString().replace(/int\(4294967292\)/,'float(4294967292)')
-			.should.equal(
-				'bool(false)\n' +
-				'bool(true)\n' +
-				'int(-42)\n' +
-				'float(4294967292)\n' +
-				'float(1.5)\n' +
-				'string(11) "abcdef \uD83D\uDCA9"\n' +
-				'int(1)\n' +
-				'string(5) "fname"\n' +
-				'string(3) "abc"\n'
+			removeObjectIds(out.toString())
+			.replace(/int\(4294967292\)/,'float(4294967292)')
+			.should.equal([
+				'bool(false)',
+				'bool(true)',
+				'int(-42)',
+				'float(4294967292)',
+				'float(1.5)',
+				'string(11) "abcdef \uD83D\uDCA9"',
+				'int(1)',
+				'string(5) "fname"',
+				'object(JsBuffer) (1) {',
+				'  ["value"]=>',
+				'  string(3) "abc"',
+				'}',
+				''].join('\n')
 			);
 		});
     });
@@ -63,10 +72,11 @@ describe('Passing context object from JS to PHP', function() {
 				c: null,
 				d: undefined,
 				e: '0',
-				f: '1'
+				f: '1',
+				g: new Buffer("abc")
 			}
 		}).then(function(v) {
-			out.toString().should.equal([
+			removeObjectIds(out.toString()).should.equal([
 				'->a: int(0)',
 				'[\'a\']: int(0)',
 				'isset: bool(true)',
@@ -103,8 +113,20 @@ describe('Passing context object from JS to PHP', function() {
 				'empty: bool(false)',
 				'exists: bool(true)',
 				'',
-				'->g: NULL',
-				'[\'g\']: NULL',
+				'->g: object(JsBuffer) (1) {',
+				'  ["value"]=>',
+				'  string(3) "abc"',
+				'}',
+				'[\'g\']: object(JsBuffer) (1) {',
+				'  ["value"]=>',
+				'  string(3) "abc"',
+				'}',
+				'isset: bool(true)',
+				'empty: bool(false)',
+				'exists: bool(true)',
+				'',
+				'->h: NULL',
+				'[\'h\']: NULL',
 				'isset: bool(false)',
 				'empty: bool(true)',
 				'exists: bool(false)',
@@ -202,6 +224,28 @@ describe('Passing context object from JS to PHP', function() {
 			context: context
 		}).then(function() {
 			out.toString().should.equal('exception caught');
+		});
+	});
+	it('should allow constructing buffers from PHP', function() {
+		var out = new StringStream();
+		var context = { b: new Buffer('abc') };
+		return php.request({
+			source: [
+				"call_user_func(function () {",
+				"  $b = $_SERVER['CONTEXT']->b;",
+				"  $bb = new $b('defgh');",
+				"  var_dump($bb);",
+				"})"].join('\n'),
+			stream: out,
+			context: context
+		}).then(function() {
+			removeObjectIds(out.toString()).should.equal([
+				'object(JsBuffer) (1) {',
+				'  ["value"]=>',
+				'  string(5) "defgh"',
+				'}',
+				''].join('\n')
+			);
 		});
 	});
 });

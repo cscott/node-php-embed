@@ -1,10 +1,10 @@
-#ifndef NODE_PHP_OBJECT_CLASS_H
-#define NODE_PHP_OBJECT_CLASS_H
+#ifndef NODE_PHP_JSOBJECT_CLASS_H
+#define NODE_PHP_JSOBJECT_CLASS_H
 
 #include <nan.h>
 extern "C" {
-#include "php.h"
-#include "Zend/zend.h"
+#include <main/php.h>
+#include <Zend/zend.h>
 }
 
 #include "values.h" /* for objid_t */

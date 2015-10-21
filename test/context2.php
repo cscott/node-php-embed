@@ -50,4 +50,11 @@ echo "empty: "; var_dump(empty($c->g));
 echo "exists: "; var_dump(property_exists($c, "g"));
 echo "\n";
 
+echo "->h: "; var_dump($c->h);
+echo "['h']: "; var_dump($c['h']);
+echo "isset: "; var_dump(isset($c->h));
+echo "empty: "; var_dump(empty($c->h));
+echo "exists: "; var_dump(property_exists($c, "h"));
+echo "\n";
+
 ?>

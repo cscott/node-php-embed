@@ -49,8 +49,8 @@ class JsHasPropertyMsg : public MessageToJs {
     Value member_;
     int has_set_exists_;
 public:
-    JsHasPropertyMsg(ObjectMapper *m, objid_t objId, zval *member, int has_set_exists)
-        : MessageToJs(m), object_(), member_(m, member),
+    JsHasPropertyMsg(ObjectMapper *m, objid_t objId, zval *member, int has_set_exists TSRMLS_DC)
+        : MessageToJs(m), object_(), member_(m, member TSRMLS_CC),
           has_set_exists_(has_set_exists) {
         object_.SetJsObject(objId);
     }
@@ -111,7 +111,7 @@ PHP_METHOD(JsObject, __isset) {
     TRACE(">");
     PARSE_PARAMS(__isset, "z/", &member);
     convert_to_string(member);
-    JsHasPropertyMsg msg(obj->channel, obj->id, member, 0);
+    JsHasPropertyMsg msg(obj->channel, obj->id, member, 0 TSRMLS_CC);
     obj->channel->Send(&msg);
     msg.WaitForResponse();
     THROW_IF_EXCEPTION("JS exception thrown during __isset of \"%*s\"",
@@ -135,7 +135,7 @@ static int node_php_jsobject_has_property(zval *object, zval *member, int has_se
     }
     node_php_jsobject *obj = (node_php_jsobject *)
         zend_object_store_get_object(object TSRMLS_CC);
-    JsHasPropertyMsg msg(obj->channel, obj->id, member, has_set_exists);
+    JsHasPropertyMsg msg(obj->channel, obj->id, member, has_set_exists TSRMLS_CC);
     obj->channel->Send(&msg);
     msg.WaitForResponse();
     // ok, result is in msg.retval_ or msg.exception_
@@ -150,8 +150,8 @@ class JsReadPropertyMsg : public MessageToJs {
     Value member_;
     int type_;
 public:
-    JsReadPropertyMsg(ObjectMapper* m, objid_t objId, zval *member, int type)
-        : MessageToJs(m), object_(), member_(m, member), type_(type) {
+    JsReadPropertyMsg(ObjectMapper* m, objid_t objId, zval *member, int type TSRMLS_DC)
+        : MessageToJs(m), object_(), member_(m, member TSRMLS_CC), type_(type) {
         object_.SetJsObject(objId);
     }
 protected:
@@ -182,7 +182,7 @@ PHP_METHOD(JsObject, __get) {
     zval *member;
     PARSE_PARAMS(__get, "z/", &member);
     convert_to_string(member);
-    JsReadPropertyMsg msg(obj->channel, obj->id, member, 0);
+    JsReadPropertyMsg msg(obj->channel, obj->id, member, 0 TSRMLS_CC);
     obj->channel->Send(&msg);
     msg.WaitForResponse();
     THROW_IF_EXCEPTION("JS exception thrown during __get of \"%*s\"",
@@ -196,8 +196,8 @@ class JsWritePropertyMsg : public MessageToJs {
     Value member_;
     Value value_;
 public:
-    JsWritePropertyMsg(ObjectMapper* m, objid_t objId, zval *member, zval *value)
-        : MessageToJs(m), object_(), member_(m, member), value_(m, value) {
+    JsWritePropertyMsg(ObjectMapper* m, objid_t objId, zval *member, zval *value TSRMLS_DC)
+        : MessageToJs(m), object_(), member_(m, member TSRMLS_CC), value_(m, value TSRMLS_CC) {
         object_.SetJsObject(objId);
     }
 protected:
@@ -221,7 +221,7 @@ PHP_METHOD(JsObject, __set) {
     TRACE(">");
     PARSE_PARAMS(__set, "z/z", &member, &value);
     convert_to_string(member);
-    JsWritePropertyMsg msg(obj->channel, obj->id, member, value);
+    JsWritePropertyMsg msg(obj->channel, obj->id, member, value TSRMLS_CC);
     obj->channel->Send(&msg);
     msg.WaitForResponse();
     THROW_IF_EXCEPTION("JS exception thrown during __set of \"%*s\"",
@@ -234,8 +234,8 @@ class JsDeletePropertyMsg : public MessageToJs {
     Value object_;
     Value member_;
 public:
-    JsDeletePropertyMsg(ObjectMapper* m, objid_t objId, zval *member)
-        : MessageToJs(m), object_(), member_(m, member) {
+    JsDeletePropertyMsg(ObjectMapper* m, objid_t objId, zval *member TSRMLS_DC)
+        : MessageToJs(m), object_(), member_(m, member TSRMLS_CC) {
         object_.SetJsObject(objId);
     }
 protected:
@@ -258,7 +258,7 @@ PHP_METHOD(JsObject, __unset) {
     TRACE(">");
     PARSE_PARAMS(__unset, "z/", &member);
     convert_to_string(member);
-    JsDeletePropertyMsg msg(obj->channel, obj->id, member);
+    JsDeletePropertyMsg msg(obj->channel, obj->id, member TSRMLS_CC);
     obj->channel->Send(&msg);
     msg.WaitForResponse();
     THROW_IF_EXCEPTION("JS exception thrown during __unset of \"%*s\"",
@@ -273,14 +273,11 @@ class JsInvokeMethodMsg : public MessageToJs {
     ulong argc_;
     Value *argv_;
  public:
-    JsInvokeMethodMsg(ObjectMapper *m, objid_t objId, zval *member, ulong argc, zval **argv)
-        : MessageToJs(m), object_(), member_(m, member), argc_(argc), argv_(Value::NewArray(m, argc, argv)) {
+    JsInvokeMethodMsg(ObjectMapper *m, objid_t objId, zval *member, ulong argc, zval **argv TSRMLS_DC)
+        : MessageToJs(m), object_(), member_(m, member TSRMLS_CC), argc_(argc), argv_(Value::NewArray(m, argc, argv TSRMLS_CC)) {
         object_.SetJsObject(objId);
     }
     virtual ~JsInvokeMethodMsg() { delete[] argv_; }
-    // this is a bit of a hack to allow constructing a call with a Buffer
-    // as an argument.
-    Value &Argv(int n) { return argv_[n]; }
  protected:
     virtual void InJs(ObjectMapper *m) {
         TRACE("> JsInvokeMethodMsg");
@@ -330,7 +327,7 @@ PHP_METHOD(JsObject, __call) {
             argv[i] = *z;
         }
     }
-    JsInvokeMethodMsg msg(obj->channel, obj->id, member, argc, argv);
+    JsInvokeMethodMsg msg(obj->channel, obj->id, member, argc, argv TSRMLS_CC);
     obj->channel->Send(&msg);
     msg.WaitForResponse();
     THROW_IF_EXCEPTION("JS exception thrown during __call of \"%*s\"",
@@ -446,7 +443,7 @@ PHP_METHOD(JsObject, name) {                                             \
     RETURN_FALSE;                                                        \
 }
 
-/* NOTE: We could also override v8js_v8object_handlers.get_constructor
+/* NOTE: We could also override node_php_jsobject_handlers.get_constructor
  * to throw an exception when invoked, but doing so causes the
  * half-constructed object to leak -- this seems to be a PHP bug.  So
  * we'll define magic __construct methods instead. */
@@ -479,12 +476,12 @@ static const zend_function_entry node_php_jsobject_methods[] = {
     PHP_ME(JsObject, __sleep,     NULL, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
     PHP_ME(JsObject, __wakeup,    NULL, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
 #if USE_MAGIC_ISSET
-    PHP_ME(JsObject, __isset, node_php_jsobject_isset_args, ZEND_ACC_PUBLIC)
+    PHP_ME(JsObject, __isset, node_php_jsobject_isset_args, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
 #endif
-    PHP_ME(JsObject, __get, node_php_jsobject_get_args, ZEND_ACC_PUBLIC)
-    PHP_ME(JsObject, __set, node_php_jsobject_set_args, ZEND_ACC_PUBLIC)
-    PHP_ME(JsObject, __unset, node_php_jsobject_unset_args, ZEND_ACC_PUBLIC)
-    PHP_ME(JsObject, __call, node_php_jsobject_call_args, ZEND_ACC_PUBLIC)
+    PHP_ME(JsObject, __get, node_php_jsobject_get_args, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
+    PHP_ME(JsObject, __set, node_php_jsobject_set_args, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
+    PHP_ME(JsObject, __unset, node_php_jsobject_unset_args, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
+    PHP_ME(JsObject, __call, node_php_jsobject_call_args, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
     ZEND_FE_END
 };
 

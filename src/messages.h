@@ -109,7 +109,7 @@ class PhpGetPropertyMsg : public MessageToPhp {
                 retval_.SetEmpty();
                 return;
             } else {
-                retval_.Set(m, r);
+                retval_.Set(m, r TSRMLS_CC);
                 /* We don't own the reference to php_value... unless the
                  * returned refcount was 0, in which case the below code
                  * will free it. */
