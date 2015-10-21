@@ -1,4 +1,4 @@
-# php-embed x.x.x (not yet released)
+# php-embed 0.0.2 (2015-10-21)
 * Add synchronous PHP access to JavaScript variables, functions, and
   methods.
 * Wrap JavaScript Buffer objects so they can be passed from PHP to JS.
