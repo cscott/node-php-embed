@@ -367,6 +367,14 @@ PHP_METHOD(JsObject, __invoke) {
     TRACE("<");
 }
 
+// Implement `__toString` by calling JS `toString` method.
+PHP_METHOD(JsObject, __toString) {
+    // use plain zval to avoid allocating copy of method name
+    zval method; ZVAL_STRINGL(&method, "toString", 8, 0);
+    zval *args = NULL;
+    call_user_function(EG(function_table), &this_ptr, &method,
+                       return_value, 0, &args TSRMLS_CC);
+}
 
 /* Use (slightly thunked) versions of the has/read/write property handlers
  * for dimensions as well, so that $obj['foo'] acts like $obj->foo. */
@@ -499,6 +507,8 @@ ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_call_args, 0, 1/*return by ref*/, 1)
     ZEND_ARG_INFO(0, member)
     ZEND_ARG_INFO(0, args)
 ZEND_END_ARG_INFO()
+ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_toString_args, 0, 0, 0)
+ZEND_END_ARG_INFO()
 
 static const zend_function_entry node_php_jsobject_methods[] = {
     PHP_ME(JsObject, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
@@ -512,6 +522,7 @@ static const zend_function_entry node_php_jsobject_methods[] = {
     PHP_ME(JsObject, __unset, node_php_jsobject_unset_args, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
     PHP_ME(JsObject, __call, node_php_jsobject_call_args, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
     PHP_ME(JsObject, __invoke, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
+    PHP_ME(JsObject, __toString, node_php_jsobject_toString_args, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
     ZEND_FE_END
 };
 

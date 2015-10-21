@@ -249,4 +249,29 @@ describe('Passing context object from JS to PHP', function() {
 			);
 		});
 	});
+	it('should implement __toString', function() {
+		var out = new StringStream();
+		var A = function A(v) { this.f = v; };
+		A.prototype.toString = function() { return JSON.stringify(this.f); };
+		var context = { a: new A(32), b: {} };
+		return php.request({
+			source: [
+				"call_user_func(function () {",
+				"  $c = $_SERVER['CONTEXT'];",
+				"  echo 'a is ' . $c->a . '\n';",
+				"  echo 'b is ' . $c->b . '\n';",
+				"  $c->a->f = 'abc';",
+				"  echo 'a is ' . $c->a . '\n';",
+				"})"].join('\n'),
+			stream: out,
+			context: context
+		}).then(function() {
+			out.toString().should.equal([
+				'a is 32',
+				'b is [object Object]',
+				'a is "abc"',
+				''
+			].join('\n'));
+		});
+	});
 });
