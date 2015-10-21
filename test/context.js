@@ -53,6 +53,7 @@ describe('Passing context object from JS to PHP', function() {
 				'string(11) "abcdef \uD83D\uDCA9"',
 				'int(1)',
 				'string(5) "fname"',
+				'int(42)',
 				'object(JsBuffer) (1) {',
 				'  ["value"]=>',
 				'  string(3) "abc"',

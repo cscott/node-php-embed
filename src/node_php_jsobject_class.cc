@@ -267,30 +267,40 @@ PHP_METHOD(JsObject, __unset) {
     TRACE("<");
 }
 
-class JsInvokeMethodMsg : public MessageToJs {
+class JsInvokeMsg : public MessageToJs {
     Value object_;
     Value member_;
     ulong argc_;
     Value *argv_;
  public:
-    JsInvokeMethodMsg(ObjectMapper *m, objid_t objId, zval *member, ulong argc, zval **argv TSRMLS_DC)
+    JsInvokeMsg(ObjectMapper *m, objid_t objId, zval *member, ulong argc, zval **argv TSRMLS_DC)
         : MessageToJs(m), object_(), member_(m, member TSRMLS_CC), argc_(argc), argv_(Value::NewArray(m, argc, argv TSRMLS_CC)) {
         object_.SetJsObject(objId);
     }
-    virtual ~JsInvokeMethodMsg() { delete[] argv_; }
+    virtual ~JsInvokeMsg() { delete[] argv_; }
  protected:
     virtual void InJs(ObjectMapper *m) {
-        TRACE("> JsInvokeMethodMsg");
+        TRACE("> JsInvokeMsg");
         Nan::MaybeLocal<v8::Object> jsObj =
             Nan::To<v8::Object>(object_.ToJs(m));
         if (jsObj.IsEmpty()) {
             return Nan::ThrowTypeError("receiver is not an object");
         }
 
-        Nan::MaybeLocal<v8::Object> method = Nan::To<v8::Object>(
-            Nan::Get(jsObj.ToLocalChecked(), member_.ToJs(m))
-            .FromMaybe<v8::Value>(Nan::Undefined())
-        );
+        v8::Local<v8::Value> member = member_.ToJs(m);
+        Nan::MaybeLocal<v8::Object> method;
+        if (member->IsNull()) {
+            // invoke function, not method.
+            method = jsObj;
+            // should be null, but https://github.com/nodejs/nan/issues/497
+            // doesn't let us pass null to functions yet.
+            jsObj = Nan::MakeMaybe(Nan::New<v8::Object>());
+        } else {
+            method = Nan::To<v8::Object>(
+                Nan::Get(jsObj.ToLocalChecked(), member)
+                .FromMaybe<v8::Value>(Nan::Undefined())
+            );
+        }
         if (method.IsEmpty()) {
             return Nan::ThrowTypeError("method is not an object");
         }
@@ -307,7 +317,7 @@ class JsInvokeMethodMsg : public MessageToJs {
         if (!result.IsEmpty()) {
             retval_.Set(m, result.ToLocalChecked());
         }
-        TRACE("< JsInvokeMethodMsg");
+        TRACE("< JsInvokeMsg");
     }
 };
 
@@ -327,7 +337,7 @@ PHP_METHOD(JsObject, __call) {
             argv[i] = *z;
         }
     }
-    JsInvokeMethodMsg msg(obj->channel, obj->id, member, argc, argv TSRMLS_CC);
+    JsInvokeMsg msg(obj->channel, obj->id, member, argc, argv TSRMLS_CC);
     obj->channel->Send(&msg);
     msg.WaitForResponse();
     THROW_IF_EXCEPTION("JS exception thrown during __call of \"%*s\"",
@@ -336,7 +346,26 @@ PHP_METHOD(JsObject, __call) {
     TRACE("<");
 }
 
-
+PHP_METHOD(JsObject, __invoke) {
+    TRACE(">");
+    node_php_jsobject *obj = (node_php_jsobject *)
+        zend_object_store_get_object(this_ptr TSRMLS_CC);
+    zval member; INIT_ZVAL(member);
+    int argc = ZEND_NUM_ARGS();
+    zval **argv = (zval**) safe_emalloc(argc, sizeof(*argv), 0);
+    if (argc > 0 && zend_get_parameters_array(ht, argc, argv) == FAILURE) {
+        efree(argv);
+        zend_throw_exception(zend_exception_get_default(TSRMLS_C), "bad args to __invoke", 0 TSRMLS_CC);
+        return;
+    }
+    JsInvokeMsg msg(obj->channel, obj->id, &member, argc, argv TSRMLS_CC);
+    efree(argv);
+    obj->channel->Send(&msg);
+    msg.WaitForResponse();
+    THROW_IF_EXCEPTION("JS exception thrown during __invoke");
+    msg.retval_.ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
+    TRACE("<");
+}
 
 
 /* Use (slightly thunked) versions of the has/read/write property handlers
@@ -482,6 +511,7 @@ static const zend_function_entry node_php_jsobject_methods[] = {
     PHP_ME(JsObject, __set, node_php_jsobject_set_args, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
     PHP_ME(JsObject, __unset, node_php_jsobject_unset_args, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
     PHP_ME(JsObject, __call, node_php_jsobject_call_args, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
+    PHP_ME(JsObject, __invoke, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
     ZEND_FE_END
 };
 
