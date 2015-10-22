@@ -13,17 +13,19 @@ extern "C" {
 
 namespace node_php_embed {
 
-class JsMessageChannel;
+class MapperChannel;
 
 struct node_php_jsobject {
     zend_object std;
-    JsMessageChannel *channel;
+    MapperChannel *channel;
     objid_t id;
 };
 
 /* Create a PHP proxy for a JS object.  res should be allocated & inited,
  * and it is owned by the caller. */
-void node_php_jsobject_create(zval *res, JsMessageChannel *channel, objid_t id TSRMLS_DC);
+void node_php_jsobject_create(zval *res, MapperChannel *channel, objid_t id TSRMLS_DC);
+/* Set the id field of the given object to 0 to indicate an invalid reference. */
+void node_php_jsobject_maybe_neuter(zval *o TSRMLS_DC);
 
 }
 

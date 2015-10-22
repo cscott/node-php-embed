@@ -1,3 +1,5 @@
+#include "node_php_embed.h"
+
 #include <nan.h>
 
 extern "C" {
@@ -6,22 +8,22 @@ extern "C" {
 #include <ext/standard/info.h>
 }
 
-#include "node_php_embed.h"
 #include "node_php_jsobject_class.h"
 #include "node_php_jsbuffer_class.h"
 
 #include "asyncmessageworker.h"
+#include "macros.h"
 #include "messages.h"
 #include "values.h"
 
-#include "macros.h"
-
 using namespace node_php_embed;
+
 static void node_php_embed_ensure_init(void);
 
 /* Per-thread storage for the module */
 ZEND_BEGIN_MODULE_GLOBALS(node_php_embed)
-    AsyncMessageWorker::MessageChannel *messageChannel;
+  PhpRequestWorker *worker;
+  MapperChannel *channel;
 ZEND_END_MODULE_GLOBALS(node_php_embed)
 
 ZEND_DECLARE_MODULE_GLOBALS(node_php_embed);
@@ -56,14 +58,14 @@ public:
     // Executed inside the PHP thread.  It is not safe to access V8 or
     // V8 data structures here, so everything we need for input and output
     // should go on `this`.
-    void Execute(MessageChannel &messageChannel) {
+    virtual void Execute(MapperChannel *channel TSRMLS_DC) {
         TRACE("> PhpRequestWorker");
-        TSRMLS_FETCH();
         if (php_request_startup(TSRMLS_C) == FAILURE) {
             Nan::ThrowError("can't create request");
             return;
         }
-        NODE_PHP_EMBED_G(messageChannel) = &messageChannel;
+        NODE_PHP_EMBED_G(worker) = this;
+        NODE_PHP_EMBED_G(channel) = channel;
         {
         ZVal retval{ZEND_FILE_LINE_C};
         zend_first_try {
@@ -84,12 +86,17 @@ public:
             SetErrorMessage("<bailout>");
         } zend_end_try();
         }
-        NODE_PHP_EMBED_G(messageChannel) = NULL;
-        // free php wrapper objects for this request
-        // XXX JS wrappers should be invalidated first, then probably
-        // one more pass through the from-JS message loop, before
-        // freeing the PHP size.
-        ClearAllPhpIds();
+        // after we return, the queues will be emptied, which might
+        // end up running some additional PHP code.
+        // The remainder of cleanup is done in AfterExecute after
+        // the queues have been emptied.
+        TRACE("< PhpRequestWorker");
+    }
+    virtual void AfterExecute(TSRMLS_D) {
+        TRACE("> PhpRequestWorker");
+        NODE_PHP_EMBED_G(worker) = NULL;
+        NODE_PHP_EMBED_G(channel) = NULL;
+        TRACE("- request shutdown");
         php_request_shutdown(NULL);
         TRACE("< PhpRequestWorker");
     }
@@ -125,12 +132,11 @@ static int node_php_embed_startup(sapi_module_struct *sapi_module) {
 
 static int node_php_embed_ub_write(const char *str, unsigned int str_length TSRMLS_DC) {
     TRACE(">");
-    // Fetch the ExecutionStream object for this thread.
-    AsyncMessageWorker::MessageChannel *messageChannel = NODE_PHP_EMBED_G(messageChannel);
-    PhpRequestWorker *worker = (PhpRequestWorker *)
-        (messageChannel->GetWorker());
+    // Fetch the MapperChannel for this thread.
+    PhpRequestWorker *worker = NODE_PHP_EMBED_G(worker);
+    MapperChannel *channel = NODE_PHP_EMBED_G(channel);
     ZVal stream{ZEND_FILE_LINE_C}, retval{ZEND_FILE_LINE_C};
-    worker->GetStream().ToPhp(messageChannel, stream TSRMLS_CC);
+    worker->GetStream().ToPhp(channel, stream TSRMLS_CC);
     // use plain zval to avoid allocating copy of method name
     zval method; ZVAL_STRINGL(&method, "write", 5, 0);
     // special buffer type to pass `str` as a node buffer and avoid copying
@@ -152,17 +158,16 @@ static void node_php_embed_flush(void *server_context) {
 static void node_php_embed_register_server_variables(zval *track_vars_array TSRMLS_DC)
 {
     TRACE(">");
-    // Fetch the ExecutionStream object for this thread.
-    AsyncMessageWorker::MessageChannel *messageChannel = NODE_PHP_EMBED_G(messageChannel);
-    PhpRequestWorker *worker = (PhpRequestWorker *)
-        (messageChannel->GetWorker());
+    PhpRequestWorker *worker = NODE_PHP_EMBED_G(worker);
+    MapperChannel *channel = NODE_PHP_EMBED_G(channel);
+
     php_import_environment_variables(track_vars_array TSRMLS_CC);
     // Set PHP_SELF to "The filename of the currently executing script,
     // relative to the document root."
     // XXX
     // Put PHP-wrapped version of node context object in $_SERVER['CONTEXT']
     ZVal context{ZEND_FILE_LINE_C};
-    worker->GetContext().ToPhp(messageChannel, context TSRMLS_CC);
+    worker->GetContext().ToPhp(channel, context TSRMLS_CC);
     char contextName[] = { "CONTEXT" };
     php_register_variable_ex(contextName, context.Transfer(TSRMLS_C), track_vars_array TSRMLS_CC);
     // XXX call a JS function passing in $_SERVER to allow init?
@@ -211,7 +216,8 @@ PHP_MINFO_FUNCTION(node_php_embed) {
 }
 
 static void node_php_embed_globals_ctor(zend_node_php_embed_globals *node_php_embed_globals TSRMLS_DC) {
-    node_php_embed_globals->messageChannel = NULL;
+    node_php_embed_globals->worker = NULL;
+    node_php_embed_globals->channel = NULL;
 }
 static void node_php_embed_globals_dtor(zend_node_php_embed_globals *node_php_embed_globals TSRMLS_DC) {
     // no clean up required

@@ -5,7 +5,9 @@
 #define NODE_PHP_EMBED_VERSION "0.0.2-git"
 
 namespace node_php_embed {
-    class PhpRequestWorker;
+
+class PhpRequestWorker;
+
 }
 
 #endif

@@ -1,15 +1,16 @@
 // A JavaScript (node/v8) object, wrapped for access by PHP code.
 // Inspired by v8js_v8object_class in the v8js PHP extension.
 
+#include "node_php_jsobject_class.h"
+
 #include <nan.h>
+
 extern "C" {
 #include <main/php.h>
 #include <Zend/zend.h>
 #include <Zend/zend_exceptions.h>
 #include <Zend/zend_types.h>
 }
-
-#include "node_php_jsobject_class.h"
 
 #include "macros.h"
 #include "messages.h"
@@ -27,16 +28,26 @@ static zend_object_handlers node_php_jsobject_handlers;
 
 /* Helpful macros for common tasks in PHP magic methods. */
 
+#define FETCH_OBJ(method, this_ptr)                                     \
+  node_php_jsobject *obj = (node_php_jsobject *)                        \
+    zend_object_store_get_object(this_ptr TSRMLS_CC);                   \
+  if (obj->id == 0) {                                                   \
+    zend_throw_exception(zend_exception_get_default(TSRMLS_C), #method " after shutdown", 0 TSRMLS_CC); \
+    return;                                                             \
+  }
+
 #define PARSE_PARAMS(method, ...)                                       \
     if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, __VA_ARGS__) == FAILURE) { \
         zend_throw_exception(zend_exception_get_default(TSRMLS_C), "bad args to " #method, 0 TSRMLS_CC); \
         return;                                                         \
     }                                                                   \
-    node_php_jsobject *obj = (node_php_jsobject *)                      \
-        zend_object_store_get_object(this_ptr TSRMLS_CC)
+    FETCH_OBJ(method, this_ptr)
 
 #define THROW_IF_EXCEPTION(...)                                 \
     do { if (msg.HasException()) {                              \
+        ZVal e{ZEND_FILE_LINE_C};                               \
+        msg.exception().ToPhp(obj->channel, e TSRMLS_CC);       \
+        /* XXX attach the wrapped JS exception XX */            \
         zend_throw_exception_ex(                                \
             zend_exception_get_default(TSRMLS_C), 0 TSRMLS_CC,  \
             __VA_ARGS__);                                       \
@@ -50,8 +61,10 @@ class JsHasPropertyMsg : public MessageToJs {
     Value member_;
     int has_set_exists_;
 public:
-    JsHasPropertyMsg(ObjectMapper *m, objid_t objId, zval *member, int has_set_exists TSRMLS_DC)
-        : MessageToJs(m), object_(), member_(m, member TSRMLS_CC),
+    JsHasPropertyMsg(ObjectMapper *m, zval *callback, bool isSync,
+                     objid_t objId, zval *member, int has_set_exists TSRMLS_DC)
+        : MessageToJs(m, callback, isSync),
+          object_(), member_(m, member TSRMLS_CC),
           has_set_exists_(has_set_exists) {
         object_.SetJsObject(objId);
     }
@@ -112,9 +125,10 @@ PHP_METHOD(JsObject, __isset) {
     TRACE(">");
     PARSE_PARAMS(__isset, "z/", &member);
     convert_to_string(member);
-    JsHasPropertyMsg msg(obj->channel, obj->id, member, 0 TSRMLS_CC);
-    obj->channel->Send(&msg);
-    msg.WaitForResponse();
+    // sync call.
+    JsHasPropertyMsg msg(obj->channel, NULL, true,
+                         obj->id, member, 0 TSRMLS_CC);
+    obj->channel->SendToJs(&msg, true TSRMLS_CC);
     THROW_IF_EXCEPTION("JS exception thrown during __isset of \"%*s\"",
                        Z_STRLEN_P(member), Z_STRVAL_P(member));
     TRACE("<");
@@ -136,13 +150,14 @@ static int node_php_jsobject_has_property(zval *object, zval *member, int has_se
     }
     node_php_jsobject *obj = (node_php_jsobject *)
         zend_object_store_get_object(object TSRMLS_CC);
-    JsHasPropertyMsg msg(obj->channel, obj->id, member, has_set_exists TSRMLS_CC);
-    obj->channel->Send(&msg);
-    msg.WaitForResponse();
+    // sync call.
+    JsHasPropertyMsg msg(obj->channel, NULL, true,
+                         obj->id, member, has_set_exists TSRMLS_CC);
+    obj->channel->SendToJs(&msg, true TSRMLS_CC);
     // ok, result is in msg.retval_ or msg.exception_
     if (msg.HasException()) { return false; /* sigh */ }
     TRACE("<");
-    return msg.retval_.AsBool();
+    return msg.retval().AsBool();
 }
 #endif /* USE_MAGIC_ISSET */
 
@@ -151,8 +166,10 @@ class JsReadPropertyMsg : public MessageToJs {
     Value member_;
     int type_;
 public:
-    JsReadPropertyMsg(ObjectMapper* m, objid_t objId, zval *member, int type TSRMLS_DC)
-        : MessageToJs(m), object_(), member_(m, member TSRMLS_CC), type_(type) {
+    JsReadPropertyMsg(ObjectMapper* m, zval *callback, bool isSync,
+                      objid_t objId, zval *member, int type TSRMLS_DC)
+        : MessageToJs(m, callback, isSync),
+          object_(), member_(m, member TSRMLS_CC), type_(type) {
         object_.SetJsObject(objId);
     }
 protected:
@@ -183,12 +200,13 @@ PHP_METHOD(JsObject, __get) {
     zval *member;
     PARSE_PARAMS(__get, "z/", &member);
     convert_to_string(member);
-    JsReadPropertyMsg msg(obj->channel, obj->id, member, 0 TSRMLS_CC);
-    obj->channel->Send(&msg);
-    msg.WaitForResponse();
+    // sync call
+    JsReadPropertyMsg msg(obj->channel, NULL, true,
+                          obj->id, member, 0 TSRMLS_CC);
+    obj->channel->SendToJs(&msg, true TSRMLS_CC);
     THROW_IF_EXCEPTION("JS exception thrown during __get of \"%*s\"",
                        Z_STRLEN_P(member), Z_STRVAL_P(member));
-    msg.retval_.ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
+    msg.retval().ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
     TRACE("<");
 }
 
@@ -197,8 +215,10 @@ class JsWritePropertyMsg : public MessageToJs {
     Value member_;
     Value value_;
 public:
-    JsWritePropertyMsg(ObjectMapper* m, objid_t objId, zval *member, zval *value TSRMLS_DC)
-        : MessageToJs(m), object_(), member_(m, member TSRMLS_CC), value_(m, value TSRMLS_CC) {
+    JsWritePropertyMsg(ObjectMapper* m, zval *callback, bool isSync,
+                       objid_t objId, zval *member, zval *value TSRMLS_DC)
+        : MessageToJs(m, callback, isSync),
+          object_(), member_(m, member TSRMLS_CC), value_(m, value TSRMLS_CC) {
         object_.SetJsObject(objId);
     }
 protected:
@@ -222,12 +242,13 @@ PHP_METHOD(JsObject, __set) {
     TRACE(">");
     PARSE_PARAMS(__set, "z/z", &member, &value);
     convert_to_string(member);
-    JsWritePropertyMsg msg(obj->channel, obj->id, member, value TSRMLS_CC);
-    obj->channel->Send(&msg);
-    msg.WaitForResponse();
+    // Sync call.
+    JsWritePropertyMsg msg(obj->channel, NULL, true,
+                           obj->id, member, value TSRMLS_CC);
+    obj->channel->SendToJs(&msg, true TSRMLS_CC);
     THROW_IF_EXCEPTION("JS exception thrown during __set of \"%*s\"",
                        Z_STRLEN_P(member), Z_STRVAL_P(member));
-    msg.retval_.ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
+    msg.retval().ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
     TRACE("<");
 }
 
@@ -235,8 +256,10 @@ class JsDeletePropertyMsg : public MessageToJs {
     Value object_;
     Value member_;
 public:
-    JsDeletePropertyMsg(ObjectMapper* m, objid_t objId, zval *member TSRMLS_DC)
-        : MessageToJs(m), object_(), member_(m, member TSRMLS_CC) {
+    JsDeletePropertyMsg(ObjectMapper* m, zval *callback, bool isSync,
+                        objid_t objId, zval *member TSRMLS_DC)
+        : MessageToJs(m, callback, isSync),
+          object_(), member_(m, member TSRMLS_CC) {
         object_.SetJsObject(objId);
     }
 protected:
@@ -259,12 +282,13 @@ PHP_METHOD(JsObject, __unset) {
     TRACE(">");
     PARSE_PARAMS(__unset, "z/", &member);
     convert_to_string(member);
-    JsDeletePropertyMsg msg(obj->channel, obj->id, member TSRMLS_CC);
-    obj->channel->Send(&msg);
-    msg.WaitForResponse();
+    // Sync call.
+    JsDeletePropertyMsg msg(obj->channel, NULL, true,
+                            obj->id, member TSRMLS_CC);
+    obj->channel->SendToJs(&msg, true TSRMLS_CC);
     THROW_IF_EXCEPTION("JS exception thrown during __unset of \"%*s\"",
                        Z_STRLEN_P(member), Z_STRVAL_P(member));
-    msg.retval_.ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
+    msg.retval().ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
     TRACE("<");
 }
 
@@ -274,8 +298,11 @@ class JsInvokeMsg : public MessageToJs {
     ulong argc_;
     Value *argv_;
  public:
-    JsInvokeMsg(ObjectMapper *m, objid_t objId, zval *member, ulong argc, zval **argv TSRMLS_DC)
-        : MessageToJs(m), object_(), member_(m, member TSRMLS_CC), argc_(argc), argv_(Value::NewArray(m, argc, argv TSRMLS_CC)) {
+    JsInvokeMsg(ObjectMapper *m, zval *callback, bool isSync,
+                objid_t objId, zval *member, ulong argc, zval **argv TSRMLS_DC)
+        : MessageToJs(m, callback, isSync),
+          object_(), member_(m, member TSRMLS_CC),
+          argc_(argc), argv_(Value::NewArray(m, argc, argv TSRMLS_CC)) {
         object_.SetJsObject(objId);
     }
     virtual ~JsInvokeMsg() { delete[] argv_; }
@@ -322,6 +349,9 @@ class JsInvokeMsg : public MessageToJs {
     }
 };
 
+// XXX figure out how to actually invoke methods async.
+// (or async methods sync, by passing a JS callback which will unblock
+// the PHP thread)
 PHP_METHOD(JsObject, __call) {
     zval *member; zval *args;
     TRACE(">");
@@ -338,19 +368,19 @@ PHP_METHOD(JsObject, __call) {
             argv[i] = *z;
         }
     }
-    JsInvokeMsg msg(obj->channel, obj->id, member, argc, argv TSRMLS_CC);
-    obj->channel->Send(&msg);
-    msg.WaitForResponse();
+    // Sync call.
+    JsInvokeMsg msg(obj->channel, NULL, true,
+                    obj->id, member, argc, argv TSRMLS_CC);
+    obj->channel->SendToJs(&msg, true TSRMLS_CC);
     THROW_IF_EXCEPTION("JS exception thrown during __call of \"%*s\"",
                        Z_STRLEN_P(member), Z_STRVAL_P(member));
-    msg.retval_.ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
+    msg.retval().ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
     TRACE("<");
 }
 
 PHP_METHOD(JsObject, __invoke) {
     TRACE(">");
-    node_php_jsobject *obj = (node_php_jsobject *)
-        zend_object_store_get_object(this_ptr TSRMLS_CC);
+    FETCH_OBJ(__invoke, this_ptr);
     zval member; INIT_ZVAL(member);
     int argc = ZEND_NUM_ARGS();
     zval **argv = (zval**) safe_emalloc(argc, sizeof(*argv), 0);
@@ -359,12 +389,13 @@ PHP_METHOD(JsObject, __invoke) {
         zend_throw_exception(zend_exception_get_default(TSRMLS_C), "bad args to __invoke", 0 TSRMLS_CC);
         return;
     }
-    JsInvokeMsg msg(obj->channel, obj->id, &member, argc, argv TSRMLS_CC);
+    // Sync call.
+    JsInvokeMsg msg(obj->channel, NULL, true,
+                    obj->id, &member, argc, argv TSRMLS_CC);
     efree(argv);
-    obj->channel->Send(&msg);
-    msg.WaitForResponse();
+    obj->channel->SendToJs(&msg, true TSRMLS_CC);
     THROW_IF_EXCEPTION("JS exception thrown during __invoke");
-    msg.retval_.ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
+    msg.retval().ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
     TRACE("<");
 }
 
@@ -450,7 +481,7 @@ static zend_object_value node_php_jsobject_new(zend_class_entry *ce TSRMLS_DC) {
     return retval;
 }
 
-void node_php_embed::node_php_jsobject_create(zval *res, JsMessageChannel *channel, objid_t id TSRMLS_DC) {
+void node_php_embed::node_php_jsobject_create(zval *res, MapperChannel *channel, objid_t id TSRMLS_DC) {
     TRACE(">");
     node_php_jsobject *c;
 
@@ -469,7 +500,18 @@ void node_php_embed::node_php_jsobject_create(zval *res, JsMessageChannel *chann
     TRACE("<");
 }
 
-#define STUB_METHOD(name)                                                \
+void node_php_embed::node_php_jsobject_maybe_neuter(zval *o TSRMLS_DC) {
+  if (Z_TYPE_P(o) != IS_OBJECT || Z_OBJCE_P(o) != php_ce_jsobject) {
+    return;
+  }
+  node_php_jsobject *obj = (node_php_jsobject *)
+    zend_object_store_get_object(o TSRMLS_CC);
+  if (!obj) { return; }
+  obj->id = 0;
+  obj->channel = NULL;
+}
+
+#define STUB_METHOD(name)                                               \
 PHP_METHOD(JsObject, name) {                                             \
     TRACE(">");                                                          \
     zend_throw_exception(                                                \

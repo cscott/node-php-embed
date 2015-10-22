@@ -13,14 +13,18 @@ extern "C" {
 
 namespace node_php_embed {
 
-class PhpMessageChannel;
+class MapperChannel;
 
 struct node_php_phpobject {
-    PhpMessageChannel *channel;
+    MapperChannel *channel;
     objid_t id;
 };
 
-v8::Local<v8::Object> node_php_phpobject_create(PhpMessageChannel *channel, objid_t id);
+v8::Local<v8::Object> node_php_phpobject_create(MapperChannel *channel, objid_t id);
+
+/* If the given object is an instance of PhpObject, set the id field to
+ * 0 (to indicate an invalid reference to a closed PHP context). */
+void node_php_phpobject_maybe_neuter(v8::Local<v8::Object> obj);
 
 }
 

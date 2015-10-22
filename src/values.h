@@ -30,6 +30,7 @@ typedef uint32_t objid_t;
 // has ids.
 class JsObjectMapper {
  public:
+    virtual ~JsObjectMapper() { }
     virtual objid_t IdForJsObj(const v8::Local<v8::Object> o) = 0;
     virtual v8::Local<v8::Object> JsObjForId(objid_t id) = 0;
 };
@@ -37,11 +38,18 @@ class JsObjectMapper {
 // The mapper will hold references for the zvals it returns.
 class PhpObjectMapper {
  public:
+    virtual ~PhpObjectMapper() { }
     virtual objid_t IdForPhpObj(zval *o) = 0;
+    // Returned value is owned by PhpObjectMapper, caller should not
+    // release it.
     virtual zval * PhpObjForId(objid_t id TSRMLS_DC) = 0;
 };
+// An ObjectMapper is used by both threads, so inherits both interfaces.
 class ObjectMapper : public JsObjectMapper, public PhpObjectMapper {
-    /* an object mapper is used by both threads */
+ public:
+    virtual ~ObjectMapper() { }
+    // Allow clients to ask whether the mapper has been shut down
+    virtual bool IsValid() = 0;
 };
 
 /** Helper for PHP zvals */
@@ -461,22 +469,22 @@ class ZVal : public NonAssignable {
         new (&phpobj_) PhpObj(id);
     }
 
-    v8::Local<v8::Value> ToJs(JsObjectMapper *m) {
+    v8::Local<v8::Value> ToJs(JsObjectMapper *m) const {
         // should we create a new escapablehandlescope here?
         return AsBase().ToJs(m);
     }
     // caller owns the zval
-    void ToPhp(PhpObjectMapper *m, zval *return_value, zval **return_value_ptr TSRMLS_DC) {
+    void ToPhp(PhpObjectMapper *m, zval *return_value, zval **return_value_ptr TSRMLS_DC) const {
         AsBase().ToPhp(m, return_value, return_value_ptr TSRMLS_CC);
     }
     // caller owns the ZVal, and is responsible for freeing it.
-    inline void ToPhp(PhpObjectMapper *m, ZVal &z TSRMLS_DC) {
+    inline void ToPhp(PhpObjectMapper *m, ZVal &z TSRMLS_DC) const {
         ToPhp(m, z.Ptr(), z.PtrPtr() TSRMLS_CC);
     }
-    bool IsEmpty() {
+    bool IsEmpty() const {
         return (type_ == VALUE_EMPTY);
     }
-    bool AsBool() {
+    bool AsBool() const {
         switch(type_) {
         case VALUE_BOOL:
             return bool_.value_;
@@ -487,7 +495,7 @@ class ZVal : public NonAssignable {
         }
     }
     /* For debugging: describe the value. Caller implicitly deallocates. */
-    std::string ToString() {
+    std::string ToString() const {
         return AsBase().ToString();
     }
 
@@ -508,7 +516,7 @@ class ZVal : public NonAssignable {
         Str str_; OStr ostr_; Buf buf_; OBuf obuf_;
         JsObj jsobj_; PhpObj phpobj_;
     };
-    const Base &AsBase() {
+    const Base &AsBase() const {
         switch(type_) {
         default:
             // should never get here.

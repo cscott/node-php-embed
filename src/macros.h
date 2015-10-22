@@ -1,14 +1,20 @@
 #ifndef NODE_PHP_EMBED_SRC_MACROS_H
 #define NODE_PHP_EMBED_SRC_MACROS_H
 
+#define NPE_ERRORX(msg, ...) \
+  fprintf(stderr, msg " %s\n", __VA_ARGS__, __func__)
+#define NPE_ERROR(msg) \
+  NPE_ERRORX(msg "%s", "") /* hack to eat up required argument */
+
 // Poor man's trace mechanism; helpful for tracking down crashes on obscure
 // architectures using travis.
-#ifdef NODE_PHP_EMBED_DEBUG
-# define TRACEX(msg, ...)  fprintf(stderr, msg " %s\n", __VA_ARGS__, __func__)
+#ifdef NODE_PHP_EMBED_TRACE
+# define TRACE(...) NPE_ERROR(__VA_ARGS__)
+# define TRACEX(...) NPE_ERRORX(__VA_ARGS__)
 #else
-# define TRACEX(msg, ...)
+# define TRACE(...)
+# define TRACEX(...)
 #endif
-#define TRACE(msg) TRACEX(msg "%s", "") /* hack to eat up required argument */
 
 #define NEW_STR(str)                                                           \
     Nan::New<v8::String>(str).ToLocalChecked()
