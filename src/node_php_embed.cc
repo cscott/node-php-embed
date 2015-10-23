@@ -112,6 +112,16 @@ private:
 };
 
 /* PHP extension metadata */
+extern zend_module_entry node_php_embed_module_entry;
+
+static int node_php_embed_startup(sapi_module_struct *sapi_module) {
+    TRACE(">");
+    if (php_module_startup(sapi_module, &node_php_embed_module_entry, 1)==FAILURE) {
+        return FAILURE;
+    }
+    TRACE("<");
+    return SUCCESS;
+}
 
 static int node_php_embed_ub_write(const char *str, unsigned int str_length TSRMLS_DC) {
     TRACE(">");
@@ -250,7 +260,7 @@ static void node_php_embed_ensure_init(void) {
     php_embed_init(argc, argv PTSRMLS_CC);
     // shutdown the initially-created request
     php_request_shutdown(NULL);
-    zend_startup_module(&node_php_embed_module_entry);
+    //zend_startup_module(&node_php_embed_module_entry);
     node::AtExit(ModuleShutdown, NULL);
     TRACE("<");
 }
@@ -261,6 +271,7 @@ NAN_MODULE_INIT(ModuleInit) {
     php_embed_module.php_ini_ignore = true;
     php_embed_module.php_ini_ignore_cwd = true;
     php_embed_module.ini_defaults = NULL;
+    php_embed_module.startup = node_php_embed_startup;
     php_embed_module.ub_write = node_php_embed_ub_write;
     php_embed_module.flush = node_php_embed_flush;
     php_embed_module.register_server_variables = node_php_embed_register_server_variables;
