@@ -6,6 +6,7 @@
 
 #include <iostream>
 
+#include "src/macros.h"
 #include "src/values.h"
 
 namespace node_php_embed {
@@ -16,14 +17,14 @@ class Message;
 class JsMessageChannel {
  public:
   virtual ~JsMessageChannel() { }
-  // If isSync is true, will not return until response has been received.
-  virtual void SendToJs(Message *m, bool isSync TSRMLS_DC) const = 0;
+  // If is_sync is true, will not return until response has been received.
+  virtual void SendToJs(Message *m, bool is_sync TSRMLS_DC) const = 0;
 };
 class PhpMessageChannel {
  public:
   virtual ~PhpMessageChannel() { }
-  // If isSync is true, will not return until response has been received.
-  virtual void SendToPhp(Message *m, bool isSync) const = 0;
+  // If is_sync is true, will not return until response has been received.
+  virtual void SendToPhp(Message *m, bool is_sync) const = 0;
 };
 
 // Helpful mechanism for passing all these interfaces around as a
@@ -70,15 +71,15 @@ class MessageToPhp : public Message {
   // fire-and-forget methods.  If provided, it will be invoked
   // nodejs-style, with exception as first arg and retval as second.
   // The callback will be owned by the message, and deleted after use.
-  // For sync calls, the callback should be null and isSync should be true.
-  MessageToPhp(ObjectMapper *m, Nan::Callback *callback, bool isSync)
-      : Message(m), callback_(callback), isSync_(isSync) {
-    assert(isSync ? !callback : true);
+  // For sync calls, the callback should be null and is_sync should be true.
+  MessageToPhp(ObjectMapper *m, Nan::Callback *callback, bool is_sync)
+      : Message(m), callback_(callback), is_sync_(is_sync) {
+    assert(is_sync ? !callback : true);
   }
   virtual ~MessageToPhp() {
     if (callback_) { delete callback_; }
   }
-  inline bool isSync() { return isSync_; }
+  inline bool IsSync() { return is_sync_; }
   // This is the "request" portion of the message, executed on the PHP
   // side and sending its result back to JS.
   void ExecutePhp(JsMessageChannel *channel TSRMLS_DC) {
@@ -107,7 +108,7 @@ class MessageToPhp : public Message {
   // side to dispatch results and/or cleanup.
   void ExecuteJs(PhpMessageChannel *channel) {
     processed_ = true;
-    if (isSync_) {
+    if (is_sync_) {
       return;  // Caller will handle return value & exceptions.
     }
     // Ensure we always invoke ToJs on the results, even for fire-and-forget.
@@ -152,38 +153,63 @@ class MessageToPhp : public Message {
 
  private:
   Nan::Callback *callback_;
-  bool isSync_;
+  bool is_sync_;
 };
 
 // This is a message constructed in PHP, where the request is handled
 // in JS and the response is handled in PHP.
 class MessageToJs : public Message {
  public:
-  // Constructed in PHP thread. The callback may be NULL for
+  // Constructed in PHP thread. The php_callback may be NULL for
   // fire-and-forget methods.  If provided, it will be invoked
   // as a closure, with the exception as the first arg and the
   // return value as the second.  The MessageToJs will ref the
-  // zval and unref it after use.  For sync calls, the callback
-  // should be null and isSync should be true.
-  MessageToJs(ObjectMapper *m, zval *callback, bool isSync)
-      : Message(m), callback_(callback ZEND_FILE_LINE_CC), isSync_(isSync) {
-    assert(isSync ? callback_.IsNull() : true);
+  // zval and unref it after use.  For sync calls, the php_callback
+  // should be null and is_sync should be true.
+  MessageToJs(ObjectMapper *m, zval *php_callback, bool is_sync)
+      : Message(m), php_callback_(php_callback ZEND_FILE_LINE_CC),
+    is_sync_(is_sync), js_callback_data_(NULL), local_flag_ptr_(NULL),
+        stashedChannel_(NULL) {
+    assert(is_sync ? php_callback_.IsNull() : true);
   }
   virtual ~MessageToJs() {}
-  inline bool isSync() { return isSync_; }
+  inline bool IsSync() { return is_sync_; }
   // This is the "request" portion of the message, executed on the
   // JS side and sending its result back to PHP.
   void ExecuteJs(PhpMessageChannel *channel) {
+    // Keep a pointer to local stack space so that recursive invocations
+    // can signal us without touching the message object. (See below.)
+    bool local_flag = false, *local_flag_ptr =
+      local_flag_ptr_ ? local_flag_ptr_ :
+      (local_flag_ptr_ = &local_flag);
     Nan::HandleScope scope;
-    if (mapper_->IsValid()) {
+    TRACEX(">%s", js_callback_data_ ? " made callback" : "");
+    if (mapper_->IsValid() && !js_callback_data_) {
       Nan::TryCatch tryCatch;
-      // XXX InJs should be allowed to be async; perhaps it should
-      // return a promise in that case.
+      // We might call MakeCallback while executing InJs, and then the client
+      // code may execute the callback synchronously, which would mean that
+      // we'd invoke CallbackFunction_ and re-enter ExecuteJS before returning
+      // from InJs! And now just that, but the recursive ExecuteJs will have
+      // sent a message to PHP, so the message itself could be deallocated
+      // before we return.  Stash the channel before invoking InJs() and use
+      // the local_flag_ptr to bail out without touching `this` again.
+      stashedChannel_ = channel;
       InJs(mapper_);
+      if (*local_flag_ptr) {
+        // already handled, bail.
+        tryCatch.Reset();
+        TRACE("< already handled");
+        return;
+      }
       if (tryCatch.HasCaught()) {
         // If an exception was thrown, set exception_
         exception_.Set(mapper_, tryCatch.Exception());
         tryCatch.Reset();
+      }
+      if (js_callback_data_ && exception_.IsEmpty()) {
+        // We'll trigger the rest of this from the callback.
+        TRACE("< made callback");
+        return;
       }
     }
     if (retval_.IsEmpty() && exception_.IsEmpty()) {
@@ -195,13 +221,21 @@ class MessageToJs : public Message {
     // (Even for fire-and-forget messages, we want to execute the
     // destructor in the same thread as the constructor, so that
     // means we need to do a context switch back to PHP.)
+    TRACE("- sending response to PHP");
+    if (js_callback_data_) {
+      js_callback_data_->MarkHandled();
+      *local_flag_ptr = true;
+    }
     channel->SendToPhp(this, false /*don't block!*/);
+    // Note that as soon as we call SendToPhp we can't touch `this` anymore,
+    // since the PHP side may have deallocated the message.
+    TRACE("<");
   }
   // This is the "response" portion of the message, executed on the
   // PHP side to dispatch results and/or cleanup.
   void ExecutePhp(JsMessageChannel *channel TSRMLS_DC) {
     processed_ = true;
-    if (isSync_) {
+    if (is_sync_) {
       return;  // Caller will handle return value & exceptions.
     }
     // Ensure we always invoke ToPhp on the results, even for fire-and-forget.
@@ -214,13 +248,13 @@ class MessageToJs : public Message {
     } else {
       retval_.ToPhp(mapper_, r TSRMLS_CC);
     }
-    if (!callback_.IsNull()) {
+    if (!php_callback_.IsNull()) {
       ZVal closureRetval{ZEND_FILE_LINE_C};
       // Use plain zval to avoid allocating copy of method name.
       zval method; ZVAL_STRINGL(&method, "call", 4, 0);
       zval *args[] = { e.Ptr(), r.Ptr() };
       if (FAILURE == call_user_function(EG(function_table),
-                                        callback_.PtrPtr(), &method,
+                                        php_callback_.PtrPtr(), &method,
                                         closureRetval.Ptr(), 2, args
                                         TSRMLS_CC)) {
         // Oh, well.  Ignore this.
@@ -235,19 +269,99 @@ class MessageToJs : public Message {
  protected:
   // This is the actual implementation of the JS-side "work".
   virtual void InJs(JsObjectMapper *m) = 0;
+  // This allows invoking async methods on the JS side.
+  v8::Local<v8::Function> MakeCallback() {
+    TRACE(">");
+    Nan::EscapableHandleScope scope;
+    js_callback_data_ = new JsCallbackData(this);
+    v8::Local<v8::Function> cb = Nan::New<v8::Function>(
+      CallbackFunction_, Nan::New<v8::External>(js_callback_data_));
+    js_callback_data_->Wrap(cb);
+    TRACE("<");
+    return scope.Escape(cb);
+  }
 
  private:
-  ZVal callback_;
-  bool isSync_;
+  class JsCallbackData {
+   public:
+    explicit JsCallbackData(MessageToJs *msg)
+        : handle_(), msg_(msg), is_handled_(false) {
+    }
+    virtual ~JsCallbackData() { }
+    void Wrap(v8::Local<v8::Function> cb) {
+      // Associate with cb; this will be freed when made weak & cb is gc'ed.
+      handle_.Reset(cb);
+    }
+    void MarkHandled() {
+      TRACE(">");
+      is_handled_ = true;
+      handle_.SetWeak<JsCallbackData>(this, Destroy_,
+                                      Nan::WeakCallbackType::kParameter);
+      TRACE("<");
+    }
+    inline MessageToJs *msg() { return msg_; }
+    inline bool is_handled() { return is_handled_; }
+
+   private:
+    static void Destroy_(const Nan::WeakCallbackInfo<JsCallbackData>& data) {
+      TRACE(">");
+      JsCallbackData *obj = data.GetParameter();
+      delete obj;
+      TRACE("<");
+    }
+    NAN_DISALLOW_ASSIGN_COPY_MOVE(JsCallbackData)
+    Nan::Persistent<v8::Function> handle_;
+    MessageToJs *msg_;
+    bool is_handled_;
+  };
+  static void CallbackFunction_(
+      const Nan::FunctionCallbackInfo<v8::Value>& info) {
+      // XXX we really need out own piece of memory here, so that
+      // we can detect if the callback is called multiple times,
+      // or if it is invoked after the original method throws an
+      // error. XXX
+      // Set retval_ and exception_ based on function parameters,
+      // then invoke Execute() again.
+      TRACE(">");
+      JsCallbackData *data = reinterpret_cast<JsCallbackData*>
+          (info.Data().As<v8::External>()->Value());
+      if (data->is_handled()) {
+        // not safe to touch msg, it may have been deallocated.
+        TRACE("< already handled");
+        return;
+      }
+      MessageToJs *msg = data->msg();
+      v8::Local<v8::Value> exception = (info.Length() > 0) ? info[0] :
+          static_cast<v8::Local<v8::Value>>(Nan::Undefined());
+      if (exception->IsNull() || exception->IsUndefined()) {
+          v8::Local<v8::Value> retval = (info.Length() > 1) ? info[1] :
+              static_cast<v8::Local<v8::Value>>(Nan::Undefined());
+          msg->retval_.Set(msg->mapper_, retval);
+      } else {
+          msg->exception_.Set(msg->mapper_, exception);
+      }
+      assert(msg->js_callback_data_);
+      msg->ExecuteJs(msg->stashedChannel_);
+      TRACE("<");
+  }
+  bool IsHandled() {
+    return (js_callback_data_ && js_callback_data_->is_handled());
+  }
+
+  ZVal php_callback_;
+  bool is_sync_;
+  JsCallbackData *js_callback_data_;
+  bool *local_flag_ptr_;
+  PhpMessageChannel *stashedChannel_;
 };
 
 // This is an example of MessageToPhp; it should be moved to
 // node_php_phpobject.cc once that file gets fleshed out.
 class PhpGetPropertyMsg : public MessageToPhp {
  public:
-  PhpGetPropertyMsg(ObjectMapper *m, Nan::Callback *callback, bool isSync,
+  PhpGetPropertyMsg(ObjectMapper *m, Nan::Callback *callback, bool is_sync,
                     v8::Local<v8::Value> obj, v8::Local<v8::Value> name)
-      : MessageToPhp(m, callback, isSync),
+      : MessageToPhp(m, callback, is_sync),
         obj_(m, obj), name_(m, name) { }
 
  protected:

@@ -370,17 +370,42 @@ class JsInvokeMsg : public MessageToJs {
     if (method.IsEmpty()) {
       return Nan::ThrowTypeError("method is not an object");
     }
+    if (!method.ToLocalChecked()->IsFunction()) {
+      return Nan::ThrowTypeError("method is not a function");
+    }
+    v8::Local<v8::Function> func = method.ToLocalChecked().As<v8::Function>();
     v8::Local<v8::Value> *argv =
       static_cast<v8::Local<v8::Value>*>
       (alloca(sizeof(v8::Local<v8::Value>) * argc_));
+    bool sawWait = false;
     for (ulong i = 0; i < argc_; i++) {
       new(&argv[i]) v8::Local<v8::Value>;
-      argv[i] = argv_[i].ToJs(m);
+      if (argv_[i].IsWait() && !sawWait) {
+        sawWait = true;
+        argv[i] = MakeCallback();
+      } else {
+        argv[i] = argv_[i].ToJs(m);
+      }
     }
+    // We have to actually use Nan::MakeCallback here, not just create a
+    // new function, or else process.nextTick will never fire!  See:
+    // https://github.com/nodejs/nan/blob/master/doc/node_misc.md#api_nan_make_callback
+    // https://github.com/tshemsedinov/io.js/commit/855af3dc5611a73331ea66aa147f8eff2787dd93
     Nan::MaybeLocal<v8::Value> result =
-      Nan::CallAsFunction(method.ToLocalChecked(), jsObj.ToLocalChecked(),
-                          argc_, argv);
-    if (!result.IsEmpty()) {
+      Nan::MakeCallback(jsObj.ToLocalChecked(), func, argc_, argv);
+    if (!result.IsEmpty() && !sawWait) {
+      // XXX perhaps if the result is a promise, we should wait on it?
+      // Better would be a PHP-side function we could call using the
+      // existing JsWait, ie:
+      //   $p = promiseReturningFunction();
+      //   $p.wait(new JsWait);
+      // where:
+      //   Promise.prototype.wait = function(cb) {
+      //     this.then(function(v) { cb(null, v); }, cb);
+      //   }
+      // This is actually Promise#nodify from prfun, so perhaps
+      // all that is needed is to call prfun's Promise.resolve()
+      // on any wrapped promise objects?
       retval_.Set(m, result.ToLocalChecked());
     }
     TRACE("< JsInvokeMsg");

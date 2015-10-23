@@ -6,6 +6,7 @@
 #ifndef NODE_PHP_EMBED_VALUES_H_
 #define NODE_PHP_EMBED_VALUES_H_
 
+#include <cassert>
 #include <cstdlib>
 
 #include <limits>
@@ -21,6 +22,7 @@ extern "C" {
 
 #include "src/macros.h"
 #include "src/node_php_jsbuffer_class.h"  // ...to recognize buffers in PHP land
+#include "src/node_php_jswait_class.h"  // ...to recognize JsWait in PHP land
 
 namespace node_php_embed {
 
@@ -341,6 +343,22 @@ class Value {
         : Obj(m->IdForPhpObj(o)) { }
     virtual const char *TypeString() const { return "PhpObj"; }
   };
+  class Wait : public Base {
+   public:
+    Wait() { }
+    virtual const char *TypeString() const { return "Wait"; }
+    virtual v8::Local<v8::Value> ToJs(JsObjectMapper *m) const {
+      Nan::EscapableHandleScope scope;
+      // Default serialize as a null for safety; the MessageToJs should
+      // handle this specially by calling MessageToJs::MakeCallback() and
+      // replacing the value.
+      return scope.Escape(Nan::Null());
+    }
+    virtual void ToPhp(PhpObjectMapper *m, zval *return_value,
+                       zval **return_value_ptr TSRMLS_DC) const {
+      node_php_jswait_create(return_value TSRMLS_CC);
+    }
+  };
 
  public:
   Value() : type_(VALUE_EMPTY), empty_(0) { }
@@ -427,6 +445,11 @@ class Value {
         SetBuffer(b->data, b->length);
         return;
       }
+      // Special case for JsWait objects.
+      if (Z_OBJCE_P(v) == php_ce_jswait) {
+        SetWait();
+        return;
+      }
       SetPhpObject(m, v);
       return;
       /*
@@ -495,9 +518,13 @@ class Value {
     type_ = VALUE_PHPOBJ;
     new (&phpobj_) PhpObj(id);
   }
+  void SetWait() {
+    PerhapsDestroy();
+    type_ = VALUE_WAIT;
+    new (&wait_) Wait();
+  }
 
   v8::Local<v8::Value> ToJs(JsObjectMapper *m) const {
-    // XXX Should we create a new EscapableHandleScope here?
     return AsBase().ToJs(m);
   }
   // The caller owns the zval.
@@ -511,6 +538,9 @@ class Value {
   }
   bool IsEmpty() const {
     return (type_ == VALUE_EMPTY);
+  }
+  bool IsWait() const {
+    return (type_ == VALUE_WAIT);
   }
   bool AsBool() const {
     switch (type_) {
@@ -550,18 +580,20 @@ class Value {
   enum ValueTypes {
     VALUE_EMPTY, VALUE_NULL, VALUE_BOOL, VALUE_INT, VALUE_DOUBLE,
     VALUE_STR, VALUE_OSTR, VALUE_BUF, VALUE_OBUF,
-    VALUE_JSOBJ, VALUE_PHPOBJ
+    VALUE_JSOBJ, VALUE_PHPOBJ,
+    VALUE_WAIT
   } type_;
   union {
     int empty_; Null null_; Bool bool_; Int int_; Double double_;
     Str str_; OStr ostr_; Buf buf_; OBuf obuf_;
     JsObj jsobj_; PhpObj phpobj_;
+    Wait wait_;
   };
 
   const Base &AsBase() const {
     switch (type_) {
     default:
-      // should never get here.
+      assert(false);  // Should never get here.
     case VALUE_NULL:
       return null_;
     case VALUE_BOOL:
@@ -582,6 +614,8 @@ class Value {
       return jsobj_;
     case VALUE_PHPOBJ:
       return phpobj_;
+    case VALUE_WAIT:
+      return wait_;
     }
   }
   NAN_DISALLOW_ASSIGN_COPY_MOVE(Value)

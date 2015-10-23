@@ -143,7 +143,8 @@ class AsyncMapperChannel : public MapperChannel {
  public:
   explicit AsyncMessageWorker(Nan::Callback *callback)
       : AsyncWorker(callback), channel_(this),
-        js_queue_(new uv_async_t), php_queue_(new uv_async_t),
+        js_queue_(new uv_async_t),
+        php_queue_(new uv_async_t),
         js_is_sync_(0),
         php_obj_to_id_(), php_obj_list_(),
         // Id #0 is reserved for "invalid object".
@@ -222,17 +223,21 @@ class AsyncMapperChannel : public MapperChannel {
     TRACE("> AsyncMessageWorker");
   }
   NAN_INLINE static void AsyncClose_(uv_handle_t* handle) {
+    TRACE(">");
     worker_and_loop *pair = static_cast<worker_and_loop*>(handle->data);
     assert(!pair->first);
     if (pair->second) {
+      TRACE("! loop close");
       uv_loop_close(pair->second);
       delete pair->second;
     }
     delete reinterpret_cast<uv_async_t*>(handle);
+    TRACE("<");
   }
 
  public:
   virtual ~AsyncMessageWorker() {
+    TRACE(">");
     // PHP-side shutdown is complete by the time the destructor is called.
     // Tear down JS-side queue.  (Completion is async, but that's okay.)
     uv_async_t *async = js_queue_.async();
@@ -242,6 +247,7 @@ class AsyncMapperChannel : public MapperChannel {
     // Mop up the pieces.
     js_obj_to_id_.Reset();
     uv_mutex_destroy(&id_lock_);
+    TRACE("<");
   }
   // This will execute on the PHP side.
   virtual void Execute(MapperChannel *mapperChannel TSRMLS_DC) = 0;
@@ -294,6 +300,9 @@ class AsyncMapperChannel : public MapperChannel {
       return Nan::To<objid_t>(jsObjToId->Get(o)).FromJust();
     }
 
+    // XXX If o is a Promise, then call PrFunPromise.resolve(o),
+    // and set both of them in the jsObjToId map. This ensures
+    // that Promise#nodify is available from PHP.
     objid_t id = NewId();
     jsObjToId->Set(o, Nan::New(id));
     SaveToPersistent(id, o);
@@ -346,8 +355,11 @@ class AsyncMapperChannel : public MapperChannel {
   void SendToPhp(Message *m, bool isSync) {
     assert(m);
     php_queue_.Push(m);
-    if (isSync) {
+    if (isSync || js_is_sync_) {
+      TRACE("! JS IS SYNC");
+      js_is_sync_++;
       ProcessJs(m);
+      js_is_sync_--;
     }
   }
 

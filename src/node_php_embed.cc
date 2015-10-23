@@ -16,8 +16,9 @@ extern "C" {
 #include "src/asyncmessageworker.h"
 #include "src/macros.h"
 #include "src/messages.h"
-#include "src/node_php_jsobject_class.h"
 #include "src/node_php_jsbuffer_class.h"
+#include "src/node_php_jsobject_class.h"
+#include "src/node_php_jswait_class.h"
 #include "src/values.h"
 
 using node_php_embed::MapperChannel;
@@ -160,9 +161,30 @@ static int node_php_embed_ub_write(const char *str,
 }
 
 static void node_php_embed_flush(void *server_context) {
-  // XXX IMPLEMENT ME
-  // Do a JsInvokeAsyncMethod of stream.write, which should add a callback
-  // and block until it is handled.
+  // Invoke stream.write with a PHP "JsWait" callback, which causes PHP
+  // to block until the callback is handled.
+  TRACE(">");
+  TSRMLS_FETCH();
+  // Fetch the MapperChannel for this thread.
+  PhpRequestWorker *worker = NODE_PHP_EMBED_G(worker);
+  MapperChannel *channel = NODE_PHP_EMBED_G(channel);
+  ZVal stream{ZEND_FILE_LINE_C}, retval{ZEND_FILE_LINE_C};
+  worker->GetStream().ToPhp(channel, stream TSRMLS_CC);
+  // Use plain zval to avoid allocating copy of method name.
+  zval method; ZVAL_STRINGL(&method, "write", 5, 0);
+  // Special buffer type to pass `str` as a node buffer and avoid copying.
+  zval buffer; INIT_ZVAL(buffer);
+  node_php_embed::node_php_jsbuffer_create(&buffer, "", 0,
+                                           OwnershipType::NOT_OWNED TSRMLS_CC);
+  // Create the special JsWait object.
+  zval wait; INIT_ZVAL(wait);
+  node_php_embed::node_php_jswait_create(&wait TSRMLS_CC);
+  zval *args[] = { &buffer, &wait };
+  call_user_function(EG(function_table), stream.PtrPtr(), &method,
+                     retval.Ptr(), 2, args TSRMLS_CC);
+  zval_dtor(&buffer);
+  zval_dtor(&wait);
+  TRACE("<");
 }
 
 static void node_php_embed_register_server_variables(
@@ -237,8 +259,9 @@ static void node_php_embed_globals_dtor(
 
 PHP_MINIT_FUNCTION(node_php_embed) {
   TRACE("> PHP_MINIT_FUNCTION");
-  PHP_MINIT(node_php_jsobject_class)(INIT_FUNC_ARGS_PASSTHRU);
   PHP_MINIT(node_php_jsbuffer_class)(INIT_FUNC_ARGS_PASSTHRU);
+  PHP_MINIT(node_php_jsobject_class)(INIT_FUNC_ARGS_PASSTHRU);
+  PHP_MINIT(node_php_jswait_class)(INIT_FUNC_ARGS_PASSTHRU);
   TRACE("< PHP_MINIT_FUNCTION");
   return SUCCESS;
 }
