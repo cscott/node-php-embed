@@ -1,7 +1,12 @@
-#ifndef NODE_PHP_MESSAGES_H
-#define NODE_PHP_MESSAGES_H
+// Definitions of message types and basic message-passing infrastructure.
+
+// Copyright (c) 2015 C. Scott Ananian <cscott@cscott.net>
+#ifndef NODE_PHP_EMBED_MESSAGES_H_
+#define NODE_PHP_EMBED_MESSAGES_H_
+
 #include <iostream>
-#include "values.h"
+
+#include "src/values.h"
 
 namespace node_php_embed {
 
@@ -11,13 +16,13 @@ class Message;
 class JsMessageChannel {
  public:
   virtual ~JsMessageChannel() { }
-  // if isSync is true, will not return until response has been received.
+  // If isSync is true, will not return until response has been received.
   virtual void SendToJs(Message *m, bool isSync TSRMLS_DC) const = 0;
 };
 class PhpMessageChannel {
  public:
   virtual ~PhpMessageChannel() { }
-  // if isSync is true, will not return until response has been received.
+  // If isSync is true, will not return until response has been received.
   virtual void SendToPhp(Message *m, bool isSync) const = 0;
 };
 
@@ -88,7 +93,7 @@ class MessageToPhp : public Message {
       } zend_end_try();
     }
     if (retval_.IsEmpty() && exception_.IsEmpty()) {
-      // if no result, throw an exception
+      // If no result, throw an exception.
       const char *msg = mapper_->IsValid() ? "no return value" : "shutdown";
       exception_.SetString(msg, strlen(msg));
     }
@@ -103,7 +108,7 @@ class MessageToPhp : public Message {
   void ExecuteJs(PhpMessageChannel *channel) {
     processed_ = true;
     if (isSync_) {
-      return; // caller will handle return value & exceptions.
+      return;  // Caller will handle return value & exceptions.
     }
     // Ensure we always invoke ToJs on the results, even for fire-and-forget.
     // This ensures that any PHP objects sent from PHP to JS get instantiated
@@ -131,18 +136,20 @@ class MessageToPhp : public Message {
         callback_->Call(2, argv);
       }
       if (tryCatch.HasCaught()) {
-        // hm, exception was thrown invoking callback. Boo.
+        // Hm, exception was thrown invoking callback. Boo.
         NPE_ERROR("! exception thrown while invoking callback");
-        tryCatch.Reset(); // swallow it up.
+        tryCatch.Reset();  // Swallow it up.
       }
     } else {
       // This was a fire-and-forget request.  Clean up!
       delete this;
     }
   }
+
  protected:
   // This is the actual implementation of the PHP-side "work".
   virtual void InPhp(PhpObjectMapper *m TSRMLS_DC) = 0;
+
  private:
   Nan::Callback *callback_;
   bool isSync_;
@@ -170,7 +177,7 @@ class MessageToJs : public Message {
     Nan::HandleScope scope;
     if (mapper_->IsValid()) {
       Nan::TryCatch tryCatch;
-      // xxx InJs should be allowed to be async; perhaps it should
+      // XXX InJs should be allowed to be async; perhaps it should
       // return a promise in that case.
       InJs(mapper_);
       if (tryCatch.HasCaught()) {
@@ -195,7 +202,7 @@ class MessageToJs : public Message {
   void ExecutePhp(JsMessageChannel *channel TSRMLS_DC) {
     processed_ = true;
     if (isSync_) {
-      return; // caller will handle return value & exceptions.
+      return;  // Caller will handle return value & exceptions.
     }
     // Ensure we always invoke ToPhp on the results, even for fire-and-forget.
     // This ensures that any JS objects sent from JS to PHP get instantiated
@@ -209,14 +216,14 @@ class MessageToJs : public Message {
     }
     if (!callback_.IsNull()) {
       ZVal closureRetval{ZEND_FILE_LINE_C};
-      // use plain zval to avoid allocating copy of method name
+      // Use plain zval to avoid allocating copy of method name.
       zval method; ZVAL_STRINGL(&method, "call", 4, 0);
       zval *args[] = { e.Ptr(), r.Ptr() };
       if (FAILURE == call_user_function(EG(function_table),
                                         callback_.PtrPtr(), &method,
                                         closureRetval.Ptr(), 2, args
                                         TSRMLS_CC)) {
-        // oh, well.  ignore this.
+        // Oh, well.  Ignore this.
         NPE_ERROR("! failure invoking closure");
       }
     } else {
@@ -224,21 +231,25 @@ class MessageToJs : public Message {
       delete this;
     }
   }
+
  protected:
   // This is the actual implementation of the JS-side "work".
   virtual void InJs(JsObjectMapper *m) = 0;
+
  private:
   ZVal callback_;
   bool isSync_;
 };
 
-// example of MessageToPhp
+// This is an example of MessageToPhp; it should be moved to
+// node_php_phpobject.cc once that file gets fleshed out.
 class PhpGetPropertyMsg : public MessageToPhp {
  public:
   PhpGetPropertyMsg(ObjectMapper *m, Nan::Callback *callback, bool isSync,
                     v8::Local<v8::Value> obj, v8::Local<v8::Value> name)
       : MessageToPhp(m, callback, isSync),
         obj_(m, obj), name_(m, name) { }
+
  protected:
   virtual void InPhp(PhpObjectMapper *m TSRMLS_DC) {
     ZVal obj{ZEND_FILE_LINE_C}, name{ZEND_FILE_LINE_C};
@@ -254,12 +265,13 @@ class PhpGetPropertyMsg : public MessageToPhp {
     ce = Z_OBJCE_P(*obj);
     property_info = zend_get_property_info(ce, *name, 1 TSRMLS_CC);
     if (property_info && property_info->flags & ZEND_ACC_PUBLIC) {
-      r = zend_read_property(NULL, *obj, Z_STRVAL_P(*name), Z_STRLEN_P(*name), true TSRMLS_CC);
-      // special case uninitialized_zval_ptr and return an empty value
+      r = zend_read_property(NULL, *obj, Z_STRVAL_P(*name), Z_STRLEN_P(*name),
+                             true TSRMLS_CC);
+      // Special case uninitialized_zval_ptr and return an empty value
       // (indicating that we don't intercept this property) if the
       // property doesn't exist.
       if (r == EG(uninitialized_zval_ptr)) {
-        // XXX this is going to trigger an exception.
+        // XXX This is going to trigger an exception.
         retval_.SetEmpty();
         return;
       } else {
@@ -272,14 +284,15 @@ class PhpGetPropertyMsg : public MessageToPhp {
         return;
       }
     }
-    // XXX fallback to __get method
+    // XXX Fallback to __get method
     retval_.SetNull();
   }
+
  private:
   Value obj_;
   Value name_;
 };
 
-} /* namespace */
+}  // namespace node_php_embed
 
-#endif
+#endif  // NODE_PHP_EMBED_MESSAGES_H_
