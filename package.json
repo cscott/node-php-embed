@@ -21,7 +21,7 @@
     "rebuild": "node-pre-gyp rebuild",
     "debug-rebuild": "node-pre-gyp --debug rebuild",
     "mocha": "mocha",
-    "lint": "scripts/cpplint.py --root=src src/asyncmessageworker.h src/messages.h src/values.h src/debug_var_dump.h",
+    "lint": "scripts/cpplint.py --root=src src/asyncmessageworker.h src/messages.h src/values.h src/debug_var_dump.h src/macros.h",
     "test": "mocha",
     "install": "node-pre-gyp install --fallback-to-build",
     "gh-publish": "scripts/publish.js",
