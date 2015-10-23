@@ -21,7 +21,10 @@
     "rebuild": "node-pre-gyp rebuild",
     "debug-rebuild": "node-pre-gyp --debug rebuild",
     "mocha": "mocha",
-    "lint": "scripts/cpplint.py --root=src src/*.h src/*.cc",
+    "jslint": "jshint . && jscs .",
+    "jscs-fix": "jscs --fix .",
+    "cpplint": "scripts/cpplint.py --root=src src/*.h src/*.cc",
+    "lint": "npm run jslint && npm run cpplint",
     "test": "npm run lint && npm run mocha",
     "install": "node-pre-gyp install --fallback-to-build",
     "gh-publish": "scripts/publish.js",
@@ -43,6 +46,8 @@
     "node-pre-gyp"
   ],
   "devDependencies": {
+    "jscs": "~2.3.5",
+    "jshint": "~2.8.0",
     "mocha": "~2.3.3",
     "readable-stream": "~2.0.2",
     "segfault-handler": "git+https://github.com/cscott/node-segfault-handler#any-signal",

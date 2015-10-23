@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /* Use the github API in order to upload release binaries. */
+/* globals Promise */ // For jshint.
 "use strict";
 require('core-js');
 var child_process = require('child_process');
