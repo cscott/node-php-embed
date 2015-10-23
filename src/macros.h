@@ -29,10 +29,12 @@
     return Nan::ThrowTypeError("Expected " #n " arguments");            \
   }
 
-#define REQUIRE_ARGUMENT_STRING(i, var)                                 \
+#define REQUIRE_ARGUMENT_STRING_NOCONV(i)                               \
   if (info.Length() <= (i) || !info[i]->IsString()) {                   \
     return Nan::ThrowTypeError("Argument " #i " must be a string");     \
-  }                                                                     \
+  }
+#define REQUIRE_ARGUMENT_STRING(i, var)                                 \
+  REQUIRE_ARGUMENT_STRING_NOCONV(i)                                     \
   Nan::Utf8String var(info[i])
 
 #define REQUIRE_ARGUMENT_NUMBER(i)                                      \

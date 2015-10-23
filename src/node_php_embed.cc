@@ -45,24 +45,17 @@ ZEND_DECLARE_MODULE_GLOBALS(node_php_embed);
 
 class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
  public:
-  PhpRequestWorker(Nan::Callback *callback, v8::Local<v8::Object> stream,
-                   v8::Local<v8::Value> context, char *source)
-      : AsyncMessageWorker(callback), result_(NULL), stream_(), context_() {
-    size_t size = strlen(source) + 1;
-    source_ = new char[size];
-    memcpy(source_, source, size);
+  PhpRequestWorker(Nan::Callback *callback, v8::Local<v8::String> source,
+                   v8::Local<v8::Object> stream, v8::Local<v8::Value> context)
+      : AsyncMessageWorker(callback), result_(), stream_(), context_() {
     JsStartupMapper mapper(this);
+    source_.Set(&mapper, source);
     stream_.Set(&mapper, stream);
     context_.Set(&mapper, context);
   }
-  virtual ~PhpRequestWorker() {
-    delete[] source_;
-    if (result_) {
-      delete[] result_;
-    }
-  }
-  Value &GetStream() { return stream_; }
-  Value &GetContext() { return context_; }
+  virtual ~PhpRequestWorker() { }
+  const Value &GetStream() { return stream_; }
+  const Value &GetContext() { return context_; }
 
   // Executed inside the PHP thread.  It is not safe to access V8 or
   // V8 data structures here, so everything we need for input and output
@@ -76,11 +69,14 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
     NODE_PHP_EMBED_G(worker) = this;
     NODE_PHP_EMBED_G(channel) = channel;
     {
-      ZVal retval{ZEND_FILE_LINE_C};
+      ZVal source{ZEND_FILE_LINE_C}, result{ZEND_FILE_LINE_C};
       zend_first_try {
         char eval_msg[] = { "request" };  // This shows up in error messages.
-        if (FAILURE == zend_eval_string_ex(source_, *retval, eval_msg,
-                                           true TSRMLS_CC)) {
+        source_.ToPhp(channel, source TSRMLS_CC);
+        assert(Z_TYPE_P(*source) == IS_STRING);
+        CHECK_ZVAL_STRING(*source);
+        if (FAILURE == zend_eval_string_ex(Z_STRVAL_P(*source), *result,
+                                           eval_msg, true TSRMLS_CC)) {
           if (EG(exception)) {
             zend_clear_exception(TSRMLS_C);
             SetErrorMessage("<threw exception>");
@@ -88,18 +84,16 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
             SetErrorMessage("<eval failure>");
           }
         }
-        convert_to_string(*retval);
-        result_ = new char[Z_STRLEN_P(*retval) + 1];
-        memcpy(result_, Z_STRVAL_P(*retval), Z_STRLEN_P(*retval));
-        result_[Z_STRLEN_P(*retval)] = 0;
+        result_.Set(channel, *result TSRMLS_CC);
+        result_.TakeOwnership();  // Since this will outlive scope of `source`.
       } zend_catch {
         SetErrorMessage("<bailout>");
       } zend_end_try();
-    }  // End of scope releases retval.
-    // After we return, the queues will be emptied, which might
-    // end up running some additional PHP code.
-    // The remainder of cleanup is done in AfterExecute after
-    // the queues have been emptied.
+    }  // End of scope releases source and retval.
+    // After we return, async tasks will be run to completion and then the
+    // queues will be emptied, which may well end up running some additional
+    // PHP code in the request context.
+    // The remainder of cleanup is done in AfterExecute after that's all done.
     TRACE("< PhpRequestWorker");
   }
   virtual void AfterExecute(TSRMLS_D) {
@@ -113,18 +107,20 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
   // Executed when the async work is complete.
   // This function will be run inside the main event loop
   // so it is safe to use V8 again.
-  void HandleOKCallback() {
+  virtual void HandleOKCallback(JsObjectMapper *m) {
     Nan::HandleScope scope;
     v8::Local<v8::Value> argv[] = {
       Nan::Null(),
-      Nan::New<v8::String>(result_ ? result_ : "").ToLocalChecked()
+      // Note that if this returns a wrapped PHP object, it won't be
+      // usable for very long!
+      result_.ToJs(m)
     };
     callback->Call(2, argv);
   }
 
  private:
-  char *source_;
-  char *result_;
+  Value source_;
+  Value result_;
   Value stream_;
   Value context_;
 };
@@ -202,13 +198,11 @@ NAN_METHOD(setIniPath) {
 NAN_METHOD(request) {
   TRACE(">");
   REQUIRE_ARGUMENTS(4);
-  REQUIRE_ARGUMENT_STRING(0, source);
-  if (!*source) {
-    return Nan::ThrowTypeError("bad string");
-  }
+  REQUIRE_ARGUMENT_STRING_NOCONV(0);
   if (!info[1]->IsObject()) {
     return Nan::ThrowTypeError("stream expected");
   }
+  v8::Local<v8::String> source = info[0].As<v8::String>();
   v8::Local<v8::Object> stream = info[1].As<v8::Object>();
   v8::Local<v8::Value> context = info[2];
   if (!info[3]->IsFunction()) {
@@ -217,8 +211,8 @@ NAN_METHOD(request) {
   Nan::Callback *callback = new Nan::Callback(info[3].As<v8::Function>());
 
   node_php_embed_ensure_init();
-  Nan::AsyncQueueWorker(new PhpRequestWorker(callback, stream, context,
-                                             *source));
+  Nan::AsyncQueueWorker(new PhpRequestWorker(callback, source, stream,
+                                             context));
   TRACE("<");
 }
 

@@ -163,14 +163,17 @@ class Value {
   };
   template <class T>
   class Prim : public Base {
+    friend class Value;
    public:
-    T value_;
     explicit Prim(T value) : value_(value) { }
     virtual std::string ToString() const {
       std::stringstream ss;
       ss << TypeString() << "(" << value_ << ")";
       return ss.str();
     }
+
+   private:
+    T value_;
   };
   class Bool : public Prim<bool> {
    public:
@@ -223,6 +226,7 @@ class Value {
   };
   enum OwnerType { NOT_OWNED, PHP_OWNED, CPP_OWNED };
   class Str : public Base {
+    friend class Value;
    protected:
     const char *data_;
     std::size_t length_;
@@ -276,6 +280,7 @@ class Value {
     virtual OwnerType Owner() { return CPP_OWNED; }
   };
   class Buf : public Str {
+    friend class Value;
    public:
     Buf(const char *data, std::size_t length) : Str(data, length) { }
     virtual const char *TypeString() const { return "Buf"; }
@@ -515,6 +520,19 @@ class Value {
       return int_.value_ != 0;
     default:
       return false;
+    }
+  }
+  // Convert unowned values into owned values so the caller can disappear.
+  void TakeOwnership() {
+    switch (type_) {
+    case VALUE_STR:
+      SetOwnedString(str_.data_, str_.length_);
+      break;
+    case VALUE_BUF:
+      SetOwnedBuffer(buf_.data_, buf_.length_);
+      break;
+    default:
+      break;
     }
   }
   /* For debugging: describe the value. Caller implicitly deallocates. */

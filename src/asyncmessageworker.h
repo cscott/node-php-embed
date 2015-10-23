@@ -193,8 +193,13 @@ class AsyncMapperChannel : public MapperChannel {
     uv_async_init(php_loop_, php_queue_.async(), PhpAsyncMessage_);
     worker_and_loop *pair = new worker_and_loop(this, php_loop_);
     php_queue_.async()->data = pair;
+    // Unref the async handle so it doesn't prevent the loop from finishing.
+    uv_unref(reinterpret_cast<uv_handle_t*>(php_queue_.async()));
     /* Now invoke the "real" Execute(), in the subclass. */
     Execute(&channel_ TSRMLS_CC);
+    // Now run any pending async tasks, until there are no more.
+    // This turns PHP into a NodeJS-style execution model!
+    uv_run(php_loop_, UV_RUN_DEFAULT);
     /* Start cleaning up. */
     objid_t last;
     {
@@ -360,6 +365,14 @@ class AsyncMapperChannel : public MapperChannel {
     } else {
       NPE_ERROR("! JsAsyncMessage after shutdown");  // Shouldn't happen.
     }
+  }
+
+  // Allow subclass to have access to a JsObjectMapper in the OKCallback.
+  virtual void HandleOKCallback() {
+    HandleOKCallback(&channel_);
+  }
+  virtual void HandleOKCallback(JsObjectMapper *m) {
+    callback->Call(0, NULL);
   }
 
   /*** Methods callable only from the PHP side ***/
