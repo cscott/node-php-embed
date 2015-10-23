@@ -285,7 +285,8 @@ class Value {
     }
     virtual void ToPhp(PhpObjectMapper *m, zval *return_value,
                        zval **return_value_ptr TSRMLS_DC) const {
-      node_php_jsbuffer_create(return_value, data_, length_, 1 TSRMLS_CC);
+      node_php_jsbuffer_create(return_value, data_, length_,
+                               OwnershipType::PHP_OWNED TSRMLS_CC);
     }
   };
   class OBuf : public Buf {

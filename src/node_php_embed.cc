@@ -21,6 +21,7 @@ extern "C" {
 #include "src/values.h"
 
 using node_php_embed::MapperChannel;
+using node_php_embed::OwnershipType;
 using node_php_embed::PhpRequestWorker;
 using node_php_embed::ZVal;
 
@@ -154,7 +155,7 @@ static int node_php_embed_ub_write(const char *str,
   // Special buffer type to pass `str` as a node buffer and avoid copying.
   zval buffer, *args[] = { &buffer }; INIT_ZVAL(buffer);
   node_php_embed::node_php_jsbuffer_create(&buffer, str, str_length,
-                                           0 /* not owned */ TSRMLS_CC);
+                                           OwnershipType::NOT_OWNED TSRMLS_CC);
   call_user_function(EG(function_table), stream.PtrPtr(), &method,
                      retval.Ptr(), 1, args TSRMLS_CC);
   zval_dtor(&buffer);
