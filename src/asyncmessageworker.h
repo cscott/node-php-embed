@@ -1,15 +1,24 @@
-#ifndef ASYNCMESSAGEWORKER_H
-#define ASYNCMESSAGEWORKER_H
+// AsyncMessageWorker handles message delivery between the JS and PHP threads.
+
+// Copyright (c) 2015 C. Scott Ananian <cscott@cscott.net>
+#ifndef NODE_PHP_EMBED_ASYNCMESSAGEWORKER_H_
+#define NODE_PHP_EMBED_ASYNCMESSAGEWORKER_H_
 
 #include <cassert>
 #include <list>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
-#include <nan.h>
+#include "nan.h"
 
-#include "messages.h"
-#include "node_php_phpobject_class.h"
-#include "node_php_jsobject_class.h"
+extern "C" {
+#include "main/php.h"
+}
+
+#include "src/messages.h"
+#include "src/node_php_phpobject_class.h"
+#include "src/node_php_jsobject_class.h"
 
 #ifdef ZTS
 #define TSRMLS_T void ***
@@ -28,7 +37,7 @@ namespace amw {
 // A queue of messages passed between threads.
 class MessageQueue {
  public:
-  MessageQueue(uv_async_t *async) : async_(async), data_() {
+  explicit MessageQueue(uv_async_t *async) : async_(async), data_() {
     uv_mutex_init(&lock_);
     uv_cond_init(&cond_);
   }
@@ -54,12 +63,15 @@ class MessageQueue {
     Message *m;
 
     while (loop) {
-      // get one.
+      // Grab one message at a time, so that we don't end up processing
+      // messages out of order in case `func(m)` below ends up creating
+      // a recursive processing loop.
       uv_mutex_lock(&lock_);
       if (data_.empty()) {
         m = NULL;
         if (match) {
-          // block for some data.
+          // We're blocking for a particular message, and there's nothing here.
+          // Block to wait for some data.
           uv_cond_wait(&cond_, &lock_);
         } else {
           loop = false;
@@ -72,10 +84,13 @@ class MessageQueue {
       uv_mutex_unlock(&lock_);
 
       if (m) { func(m); }
+      // Check whether either we processed the matching message,
+      // or else a recursive processing loop handled it for us.
       if (match && match->IsProcessed()) { loop = false; }
     }
     return sawOne;
   }
+
  private:
   void _Push(Message *m) {
     uv_mutex_lock(&lock_);
@@ -93,12 +108,12 @@ class MessageQueue {
 };
 
 /* This is a proxy class, to avoid exposing the guts of AsyncMessageWorker
- * to the object proxies. */
+ * to the object proxy classes. */
 class AsyncMapperChannel : public MapperChannel {
   friend class node_php_embed::AsyncMessageWorker;
  public:
   virtual ~AsyncMapperChannel() { }
-   // JsObjectMapper interface
+  // JsObjectMapper interface
   virtual objid_t IdForJsObj(const v8::Local<v8::Object> o);
   virtual v8::Local<v8::Object> JsObjForId(objid_t id);
   // PhpObjectMapper interface
@@ -116,14 +131,14 @@ class AsyncMapperChannel : public MapperChannel {
   AsyncMessageWorker* const that_;
 };
 
-} // amw namespace
+}  // namespace amw
 
 /* This class is similar to Nan's AsyncProgressWorker, except that
  * we guarantee not to lose/discard messages sent from the worker,
  * and we've got special support for two-way message queues.
  */
 /*abstract*/ class AsyncMessageWorker : public Nan::AsyncWorker {
-  typedef std::pair<AsyncMessageWorker *,uv_loop_t*> worker_and_loop;
+  typedef std::pair<AsyncMessageWorker *, uv_loop_t*> worker_and_loop;
   friend class amw::AsyncMapperChannel;
  public:
   explicit AsyncMessageWorker(Nan::Callback *callback)
@@ -131,9 +146,9 @@ class AsyncMapperChannel : public MapperChannel {
         js_queue_(new uv_async_t), php_queue_(new uv_async_t),
         js_is_sync_(0),
         php_obj_to_id_(), php_obj_list_(),
-        // id #0 is reserved for "invalid object"
+        // Id #0 is reserved for "invalid object".
         next_id_(1) {
-    // set up JS async loop (PHP side will be done in Execute)
+    // Set up JS async loop (PHP side will be done in Execute).
     uv_async_init(uv_default_loop(), js_queue_.async(), JsAsyncMessage_);
     js_queue_.async()->data = new worker_and_loop(this, NULL);
     uv_mutex_init(&id_lock_);
@@ -141,9 +156,9 @@ class AsyncMapperChannel : public MapperChannel {
     js_obj_to_id_.Reset(v8::NativeWeakMap::New(v8::Isolate::GetCurrent()));
   }
 
-  // from the AsyncWorker superclass: once queued, Execute will run in the
+  // From the AsyncWorker superclass: once queued, Execute will run in the
   // PHP thread, then after it returns, WorkComplete() and Destroy() will
-  // run in the JS thread.  WorkComplete handles the callbacks
+  // run in the JS thread.  WorkComplete handles the final callbacks.
 
  private:
   class JsCleanupSyncMsg : MessageToJs {
@@ -186,19 +201,19 @@ class AsyncMapperChannel : public MapperChannel {
       JsCleanupSyncMsg msg(this, &channel_);
       SendToJs(&msg, true TSRMLS_CC);
       last = msg.GetLastId(&channel_ TSRMLS_CC);
-      // leave scope to dealloc msg before proceeding
+      // Exit this scope to dealloc msg before proceeding.
     }
-    ProcessPhp(NULL TSRMLS_CC); // shouldn't be necessary
+    ProcessPhp(NULL TSRMLS_CC);  // A precaution; shouldn't be necessary.
     /* OK, queues are empty now, we can start tearing things down. */
     for (objid_t id = 1; id < last; id++) {
-      ClearPhpId(id TSRMLS_CC); // probably not necessary, but can't hurt.
+      ClearPhpId(id TSRMLS_CC);  // Probably not necessary, but can't hurt.
     }
     /* Hook for additional PHP-side shutdown. */
     AfterExecute(TSRMLS_C);
     /* Tear down loop and queue */
-    pair->first = NULL; // can't touch asyncmessageworker after we return.
+    pair->first = NULL;  // Can't touch asyncmessageworker after we return.
     uv_close(reinterpret_cast<uv_handle_t*>(php_queue_.async()),
-             AsyncClose_); // completes async
+             AsyncClose_);  // This close operation completes asynchronously.
     TRACE("> AsyncMessageWorker");
   }
   NAN_INLINE static void AsyncClose_(uv_handle_t* handle) {
@@ -210,13 +225,14 @@ class AsyncMapperChannel : public MapperChannel {
     }
     delete reinterpret_cast<uv_async_t*>(handle);
   }
+
  public:
   virtual ~AsyncMessageWorker() {
     // PHP-side shutdown is complete by the time the destructor is called.
     // Tear down JS-side queue.  (Completion is async, but that's okay.)
     uv_async_t *async = js_queue_.async();
     worker_and_loop *pair = static_cast<worker_and_loop*>(async->data);
-    pair->first = NULL; // can't touch asyncmessageworker after we return.
+    pair->first = NULL;  // can't touch asyncmessageworker after we return.
     uv_close(reinterpret_cast<uv_handle_t*>(async), AsyncClose_);
     // Mop up the pieces.
     js_obj_to_id_.Reset();
@@ -232,7 +248,7 @@ class AsyncMapperChannel : public MapperChannel {
   // Limited ObjectMapper for use during subclass initialization.
   class JsStartupMapper : public JsObjectMapper {
    public:
-    JsStartupMapper(AsyncMessageWorker *worker) : worker_(worker) { }
+    explicit JsStartupMapper(AsyncMessageWorker *worker) : worker_(worker) { }
     virtual objid_t IdForJsObj(const v8::Local<v8::Object> o) {
       return worker_->IdForJsObj(o);
     }
@@ -245,26 +261,26 @@ class AsyncMapperChannel : public MapperChannel {
   };
 
  private:
-  /* From both threads */
+  /*** Methods callable from both threads ***/
 
   inline objid_t NewId() {
     uv_mutex_lock(&id_lock_);
     // next_id_ is 0 if we're shutting down.
-    objid_t id = (next_id_==0) ? 0 : (next_id_++);
+    objid_t id = (next_id_ == 0) ? 0 : (next_id_++);
     uv_mutex_unlock(&id_lock_);
     return id;
   }
 
   inline bool IsValid() {
     uv_mutex_lock(&id_lock_);
-    bool valid = (next_id_!=0);
+    bool valid = (next_id_ != 0);
     uv_mutex_unlock(&id_lock_);
     return valid;
   }
 
-  /*** JavaScript side ***/
+  /*** Methods callable only from the JavaScript side ***/
 
-  // Map Js object to an index (JS thread only)
+  // Map Js object to an index.
   objid_t IdForJsObj(const v8::Local<v8::Object> o) {
     // Have we already mapped this?
     Nan::HandleScope scope;
@@ -279,7 +295,7 @@ class AsyncMapperChannel : public MapperChannel {
     return id;
   }
 
-  // Map index to JS object (or create it if necessary)
+  // Map index to JS object (or create it if necessary).
   v8::Local<v8::Object> JsObjForId(objid_t id) {
     Nan::EscapableHandleScope scope;
     Nan::MaybeLocal<v8::Object> maybeObj =
@@ -287,7 +303,7 @@ class AsyncMapperChannel : public MapperChannel {
     if (!maybeObj.IsEmpty()) {
       return scope.Escape(maybeObj.ToLocalChecked());
     }
-    // make a wrapper!
+    // Make a wrapper!
     v8::Local<v8::NativeWeakMap> jsObjToId = Nan::New(js_obj_to_id_);
     v8::Local<v8::Object> o = node_php_phpobject_create(&channel_, id);
     jsObjToId->Set(o, Nan::New(id));
@@ -295,7 +311,7 @@ class AsyncMapperChannel : public MapperChannel {
     return scope.Escape(o);
   }
 
-  // Free JS references associated with an id (from JS thread)
+  // Free JS references associated with an id.
   void ClearJsId(objid_t id) {
     Nan::HandleScope scope;
     Nan::MaybeLocal<v8::Object> o =
@@ -304,7 +320,7 @@ class AsyncMapperChannel : public MapperChannel {
     // There might be other live references to this object; set its
     // id to 0 to neuter it.
     node_php_phpobject_maybe_neuter(o.ToLocalChecked());
-    // Remove it from our maps (and release our persistent reference)
+    // Remove it from our maps (and release our persistent reference).
     v8::Local<v8::NativeWeakMap> jsObjToId = Nan::New(js_obj_to_id_);
     jsObjToId->Delete(o.ToLocalChecked());
     SaveToPersistent(id, Nan::Undefined());
@@ -313,7 +329,7 @@ class AsyncMapperChannel : public MapperChannel {
   objid_t ClearAllJsIds() {
     uv_mutex_lock(&id_lock_);
     objid_t last = next_id_;
-    next_id_ = 0; // don't allocate any more ids.
+    next_id_ = 0;  // Don't allocate any more ids.
     uv_mutex_unlock(&id_lock_);
 
     for (objid_t id = 1; id < last; id++) {
@@ -342,13 +358,13 @@ class AsyncMapperChannel : public MapperChannel {
     if (pair->first) {
       pair->first->ProcessJs(NULL);
     } else {
-      NPE_ERROR("! JsAsyncMessage after shutdown"); // shouldn't happen
+      NPE_ERROR("! JsAsyncMessage after shutdown");  // Shouldn't happen.
     }
   }
 
-  /*** PHP side ***/
+  /*** Methods callable only from the PHP side ***/
 
-  // Map PHP object to an index (PHP thread only)
+  // Map PHP object to an index.
   objid_t IdForPhpObj(zval *z) {
     assert(Z_TYPE_P(z) == IS_OBJECT);
     zend_object_handle handle = Z_OBJ_HANDLE_P(z);
@@ -358,14 +374,14 @@ class AsyncMapperChannel : public MapperChannel {
 
     objid_t id = NewId();
     if (id >= php_obj_list_.size()) { php_obj_list_.resize(id + 1); }
-    // XXX should we clone/separate z?
+    // XXX Should we clone/separate z?
     Z_ADDREF_P(z);
     php_obj_list_[id] = z;
     php_obj_to_id_[handle] = id;
     return id;
   }
 
-  // Returned value is owned by objectmapper, caller should not release it.
+  // Returned value is owned by the object mapper, caller should not release it.
   zval * PhpObjForId(objid_t id TSRMLS_DC) {
     if (id >= php_obj_list_.size()) { php_obj_list_.resize(id + 1); }
     ZVal z(php_obj_list_[id] ZEND_FILE_LINE_CC);
@@ -373,14 +389,14 @@ class AsyncMapperChannel : public MapperChannel {
       node_php_jsobject_create(z.Ptr(), &channel_, id TSRMLS_CC);
       php_obj_list_[id] = z.Ptr();
       php_obj_to_id_[Z_OBJ_HANDLE_P(z.Ptr())] = id;
-      // one excess reference: owned by objectmapper
+      // One excess reference, owned by objectmapper.
       return z.Escape();
     }
-    // don't increment reference
+    // Don't increment reference.
     return z.Ptr();
   }
 
-  // Free PHP references associated with an id (from PHP thread)
+  // Free PHP references associated with an id.
   void ClearPhpId(objid_t id TSRMLS_DC) {
     zval *z = (id < php_obj_list_.size()) ? php_obj_list_[id] : NULL;
     if (z) {
@@ -412,39 +428,39 @@ class AsyncMapperChannel : public MapperChannel {
       TSRMLS_FETCH();
       pair->first->ProcessPhp(NULL TSRMLS_CC);
     } else {
-      NPE_ERROR("! PhpAsyncMessage after shutdown"); // shouldn't happen
+      NPE_ERROR("! PhpAsyncMessage after shutdown");  // Shouldn't happen.
     }
   }
 
-  /** Member fields **/
+  /*** Member fields ***/
 
   // Inner interface to export a clean API.
   amw::AsyncMapperChannel channel_;
 
-  // Queue for messages between PHP to JS
+  // Queue for messages between PHP to JS.
   amw::MessageQueue js_queue_;
   amw::MessageQueue php_queue_;
-  // PHP event loop
+  // PHP event loop.
   uv_loop_t *php_loop_;
-  // deadlock prevention
+  // Deadlock prevention.
   int js_is_sync_;
 
   // Js Object mapping (along with GetFromPersistent/etc)
-  // Read/writable only from Js thread
+  // Read/writable only from Js thread.
   Nan::Persistent<v8::NativeWeakMap> js_obj_to_id_;
 
   // PHP Object mapping
-  // Read/writable only from PHP thread
-  std::unordered_map<zend_object_handle,objid_t> php_obj_to_id_;
+  // Read/writable only from PHP thread.
+  std::unordered_map<zend_object_handle, objid_t> php_obj_to_id_;
   std::vector<zval*> php_obj_list_;
 
-  // Ids are allocated from both threads, so mutex is required
+  // Ids are allocated from both threads, so mutex is required.
   uv_mutex_t id_lock_;
   objid_t next_id_;
 };
 
-// Implement AsyncMapperChannel proxies (after AsyncMessageWorker
-// is defined).
+// Implement AsyncMapperChannel proxies (down here, after
+// AsyncMessageWorker has been defined).
 
 // JsObjectMapper interface
 objid_t amw::AsyncMapperChannel::IdForJsObj(const v8::Local<v8::Object> o) {
@@ -465,7 +481,8 @@ bool amw::AsyncMapperChannel::IsValid() {
   return that_->IsValid();
 }
 // JsMessageChannel interface
-void amw::AsyncMapperChannel::SendToJs(Message *m, bool isSync TSRMLS_DC) const {
+void amw::AsyncMapperChannel::SendToJs(Message *m,
+                                       bool isSync TSRMLS_DC) const {
   that_->SendToJs(m, isSync TSRMLS_CC);
 }
 // PhpMessageChannel interface
@@ -473,5 +490,6 @@ void amw::AsyncMapperChannel::SendToPhp(Message *m, bool isSync) const {
   that_->SendToPhp(m, isSync);
 }
 
-}
-#endif
+}  // namespace node_php_embed
+
+#endif  // NODE_PHP_EMBED_ASYNCMESSAGEWORKER_H_

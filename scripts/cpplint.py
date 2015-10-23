@@ -52,6 +52,7 @@ import string
 import sys
 import unicodedata
 
+_PROJECT_NAME="node-php-embed" # CSA hack
 
 _USAGE = """
 Syntax: cpplint.py [--verbose=#] [--output=vs7] [--filter=-x,+y,...]
@@ -400,7 +401,7 @@ _CPP_HEADERS = frozenset([
 #   uppercase character, such as Python.h or nsStringAPI.h, for example).
 # - Lua headers.
 _THIRD_PARTY_HEADERS_PATTERN = re.compile(
-    r'^(?:[^/]*[A-Z][^/]*\.h|lua\.h|lauxlib\.h|lualib\.h)$')
+    r'^(?:[^/]*[A-Z][^/]*\.h|lua\.h|lauxlib\.h|lualib\.h|nan.h)$')
 
 
 # Assertion macros.  These are defined in base/logging.h and
@@ -1671,6 +1672,8 @@ def GetHeaderGuardCPPVariable(filename):
   file_path_from_root = fileinfo.RepositoryName()
   if _root:
     file_path_from_root = re.sub('^' + _root + os.sep, '', file_path_from_root)
+  # CSA hack: add project name to root of path.
+  file_path_from_root = _PROJECT_NAME + os.sep + file_path_from_root
   return re.sub(r'[^a-zA-Z0-9]', '_', file_path_from_root).upper() + '_'
 
 

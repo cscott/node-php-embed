@@ -6,7 +6,7 @@
   'targets': [
     {
       'target_name': 'node_php_embed',
-      "include_dirs": ["<!(node -e \"require('nan')\")"],
+      "include_dirs": ["<!(node -e \"require('nan')\")","."],
       'conditions': [
         ['libphp5 != "internal"', {
             'libraries': [ "<!@(php-config --ldflags) -lphp5" ],
