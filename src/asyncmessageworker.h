@@ -90,6 +90,11 @@ class MessageQueue {
     }
     return sawOne;
   }
+  uv_async_t *ClearAsync() {
+    uv_async_t *a = async_;
+    async_ = NULL;
+    return a;
+  }
 
  private:
   void _Push(Message *m) {
@@ -215,11 +220,11 @@ class AsyncMapperChannel : public MapperChannel {
     /* Hook for additional PHP-side shutdown. */
     AfterExecute(TSRMLS_C);
     /* Tear down loop and queue */
-    php_queue_.async()->data = NULL;  // Can't touch asyncmessageworker
-                                      // after we return.
-    uv_close(reinterpret_cast<uv_handle_t*>(php_queue_.async()),
-             AsyncClose_);  // This close operation completes in the php_loop_
-    uv_run(php_loop_, UV_RUN_ONCE);  // Let the close complete.
+    uv_async_t *a = php_queue_.ClearAsync();
+    a->data = NULL;  // Can't touch asyncmessageworker after we return.
+    // This close operation completes in the php_loop_
+    uv_close(reinterpret_cast<uv_handle_t*>(a), AsyncClose_);
+    uv_run(php_loop_, UV_RUN_DEFAULT);  // Let the close complete.
     uv_loop_close(php_loop_);
     delete php_loop_;
     TRACE("> AsyncMessageWorker");
