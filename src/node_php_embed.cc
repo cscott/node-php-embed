@@ -24,6 +24,7 @@ extern "C" {
 using node_php_embed::MapperChannel;
 using node_php_embed::OwnershipType;
 using node_php_embed::PhpRequestWorker;
+using node_php_embed::Value;
 using node_php_embed::ZVal;
 
 static void node_php_embed_ensure_init(void);

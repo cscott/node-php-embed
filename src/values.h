@@ -237,15 +237,7 @@ class Value {
    public:
     explicit Str(const char *data, std::size_t length)
         : data_(data), length_(length) { }
-    virtual ~Str() {
-      if (data_) {
-        switch (Owner()) {
-        case NOT_OWNED: break;
-        case PHP_OWNED: efree(const_cast<char*>(data_)); break;
-        case CPP_OWNED: delete[] data_; break;
-        }
-      }
-    }
+    virtual ~Str() { Destroy(); }
     virtual const char *TypeString() const { return "Str"; }
     virtual v8::Local<v8::Value> ToJs(JsObjectMapper *m) const {
       Nan::EscapableHandleScope scope;
@@ -266,6 +258,17 @@ class Value {
       ss << ")";
       return ss.str();
     }
+
+   private:
+    virtual void Destroy() {
+      if (data_ == NULL) { return; }
+      switch (Owner()) {
+      case NOT_OWNED: break;
+      case PHP_OWNED: efree(const_cast<char*>(data_)); break;
+      case CPP_OWNED: delete[] data_; break;
+      }
+      data_ = NULL;
+    }
   };
   class OStr : public Str {
     // An "owned string", will copy data on creation and free it on delete.
@@ -277,6 +280,7 @@ class Value {
       ndata[length] = 0;
       data_ = ndata;
     }
+    virtual ~OStr() { Destroy(); }
     virtual const char *TypeString() const { return "OStr"; }
    protected:
     virtual OwnerType Owner() { return CPP_OWNED; }
@@ -285,6 +289,7 @@ class Value {
     friend class Value;
    public:
     Buf(const char *data, std::size_t length) : Str(data, length) { }
+    virtual ~Buf() { Destroy(); }
     virtual const char *TypeString() const { return "Buf"; }
     virtual v8::Local<v8::Value> ToJs(JsObjectMapper *m) const {
       Nan::EscapableHandleScope scope;
@@ -303,6 +308,7 @@ class Value {
       memcpy(tmp, data, length);
       data_ = tmp;
     }
+    virtual ~OBuf() { Destroy(); }
     virtual const char *TypeString() const { return "OBuf"; }
    protected:
     virtual OwnerType Owner() { return CPP_OWNED; }
