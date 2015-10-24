@@ -153,13 +153,13 @@ class Value {
   class Null : public Base {
    public:
     Null() { }
-    virtual const char *TypeString() const { return "Null"; }
-    virtual v8::Local<v8::Value> ToJs(JsObjectMapper *m) const {
+    const char *TypeString() const override { return "Null"; }
+    v8::Local<v8::Value> ToJs(JsObjectMapper *m) const override {
       Nan::EscapableHandleScope scope;
       return scope.Escape(Nan::Null());
     }
-    virtual void ToPhp(PhpObjectMapper *m, zval *return_value,
-                       zval **return_value_ptr TSRMLS_DC) const {
+    void ToPhp(PhpObjectMapper *m, zval *return_value,
+                       zval **return_value_ptr TSRMLS_DC) const override {
       RETURN_NULL();
     }
   };
@@ -168,7 +168,7 @@ class Value {
     friend class Value;
    public:
     explicit Prim(T value) : value_(value) { }
-    virtual std::string ToString() const {
+    std::string ToString() const override {
       std::stringstream ss;
       ss << TypeString() << "(" << value_ << ")";
       return ss.str();
@@ -180,21 +180,21 @@ class Value {
   class Bool : public Prim<bool> {
    public:
     using Prim::Prim;
-    virtual const char *TypeString() const { return "Bool"; }
-    virtual v8::Local<v8::Value> ToJs(JsObjectMapper *m) const {
+    const char *TypeString() const override { return "Bool"; }
+    v8::Local<v8::Value> ToJs(JsObjectMapper *m) const override {
       Nan::EscapableHandleScope scope;
       return scope.Escape(Nan::New(value_));
     }
-    virtual void ToPhp(PhpObjectMapper *m, zval *return_value,
-                       zval **return_value_ptr TSRMLS_DC) const {
+    void ToPhp(PhpObjectMapper *m, zval *return_value,
+                       zval **return_value_ptr TSRMLS_DC) const override {
       RETURN_BOOL(value_);
     }
   };
   class Int : public Prim<int64_t> {
    public:
     using Prim::Prim;
-    virtual const char *TypeString() const { return "Int"; }
-    virtual v8::Local<v8::Value> ToJs(JsObjectMapper *m) const {
+    const char *TypeString() const override { return "Int"; }
+    v8::Local<v8::Value> ToJs(JsObjectMapper *m) const override {
       Nan::EscapableHandleScope scope;
       if (value_ >= 0 && value_ <= std::numeric_limits<uint32_t>::max()) {
         return scope.Escape(Nan::New((uint32_t)value_));
@@ -204,8 +204,8 @@ class Value {
       }
       return scope.Escape(Nan::New(static_cast<double>(value_)));
     }
-    virtual void ToPhp(PhpObjectMapper *m, zval *return_value,
-                       zval **return_value_ptr TSRMLS_DC) const {
+    void ToPhp(PhpObjectMapper *m, zval *return_value,
+                       zval **return_value_ptr TSRMLS_DC) const override {
       if (value_ >= std::numeric_limits<long>::min() &&  // NOLINT(runtime/int)
           value_ <= std::numeric_limits<long>::max()) {  // NOLINT(runtime/int)
         RETURN_LONG((long)value_);                       // NOLINT(runtime/int)
@@ -216,13 +216,13 @@ class Value {
   class Double : public Prim<double> {
    public:
     using Prim::Prim;
-    virtual const char *TypeString() const { return "Double"; }
-    virtual v8::Local<v8::Value> ToJs(JsObjectMapper *m) const {
+    const char *TypeString() const override { return "Double"; }
+    v8::Local<v8::Value> ToJs(JsObjectMapper *m) const override {
       Nan::EscapableHandleScope scope;
       return scope.Escape(Nan::New(value_));
     }
-    virtual void ToPhp(PhpObjectMapper *m, zval *return_value,
-                       zval **return_value_ptr TSRMLS_DC) const {
+    void ToPhp(PhpObjectMapper *m, zval *return_value,
+                       zval **return_value_ptr TSRMLS_DC) const override {
       RETURN_DOUBLE(value_);
     }
   };
@@ -232,22 +232,22 @@ class Value {
    protected:
     const char *data_;
     std::size_t length_;
-    virtual OwnerType Owner() { return NOT_OWNED; }
+    virtual OwnerType Owner() const { return NOT_OWNED; }
 
    public:
     explicit Str(const char *data, std::size_t length)
         : data_(data), length_(length) { }
     virtual ~Str() { Destroy(); }
-    virtual const char *TypeString() const { return "Str"; }
-    virtual v8::Local<v8::Value> ToJs(JsObjectMapper *m) const {
+    const char *TypeString() const override { return "Str"; }
+    v8::Local<v8::Value> ToJs(JsObjectMapper *m) const override {
       Nan::EscapableHandleScope scope;
       return scope.Escape(Nan::New(data_, length_).ToLocalChecked());
     }
-    virtual void ToPhp(PhpObjectMapper *m, zval *return_value,
-                       zval **return_value_ptr TSRMLS_DC) const {
+    void ToPhp(PhpObjectMapper *m, zval *return_value,
+                       zval **return_value_ptr TSRMLS_DC) const override {
       RETURN_STRINGL(data_, length_, 1);
     }
-    virtual std::string ToString() const {
+    std::string ToString() const override {
       std::stringstream ss;
       ss << TypeString() << "(" << length_ << ",";
       if (length_ > 10) {
@@ -260,7 +260,7 @@ class Value {
     }
 
    private:
-    virtual void Destroy() {
+    void Destroy() {
       if (data_ == NULL) { return; }
       switch (Owner()) {
       case NOT_OWNED: break;
@@ -281,22 +281,22 @@ class Value {
       data_ = ndata;
     }
     virtual ~OStr() { Destroy(); }
-    virtual const char *TypeString() const { return "OStr"; }
+    const char *TypeString() const override { return "OStr"; }
    protected:
-    virtual OwnerType Owner() { return CPP_OWNED; }
+    OwnerType Owner() const override { return CPP_OWNED; }
   };
   class Buf : public Str {
     friend class Value;
    public:
     Buf(const char *data, std::size_t length) : Str(data, length) { }
     virtual ~Buf() { Destroy(); }
-    virtual const char *TypeString() const { return "Buf"; }
-    virtual v8::Local<v8::Value> ToJs(JsObjectMapper *m) const {
+    const char *TypeString() const override { return "Buf"; }
+    v8::Local<v8::Value> ToJs(JsObjectMapper *m) const override {
       Nan::EscapableHandleScope scope;
       return scope.Escape(Nan::CopyBuffer(data_, length_).ToLocalChecked());
     }
-    virtual void ToPhp(PhpObjectMapper *m, zval *return_value,
-                       zval **return_value_ptr TSRMLS_DC) const {
+    void ToPhp(PhpObjectMapper *m, zval *return_value,
+                       zval **return_value_ptr TSRMLS_DC) const override {
       node_php_jsbuffer_create(return_value, data_, length_,
                                OwnershipType::PHP_OWNED TSRMLS_CC);
     }
@@ -309,27 +309,27 @@ class Value {
       data_ = tmp;
     }
     virtual ~OBuf() { Destroy(); }
-    virtual const char *TypeString() const { return "OBuf"; }
+    const char *TypeString() const override { return "OBuf"; }
    protected:
-    virtual OwnerType Owner() { return CPP_OWNED; }
+    OwnerType Owner() const override { return CPP_OWNED; }
   };
   class Obj : public Base {
     objid_t id_;
    public:
     explicit Obj(objid_t id) : id_(id) { }
-    virtual v8::Local<v8::Value> ToJs(JsObjectMapper *m) const {
+    v8::Local<v8::Value> ToJs(JsObjectMapper *m) const override {
       Nan::EscapableHandleScope scope;
       return scope.Escape(m->JsObjForId(id_));
     }
-    virtual void ToPhp(PhpObjectMapper *m, zval *return_value,
-                       zval **return_value_ptr TSRMLS_DC) const {
+    void ToPhp(PhpObjectMapper *m, zval *return_value,
+                       zval **return_value_ptr TSRMLS_DC) const override {
       zval_ptr_dtor(&return_value);
       *return_value_ptr = return_value = m->PhpObjForId(id_ TSRMLS_CC);
       // The object mapper owns the reference returned, but we need a
       // reference owned by the caller --- so increment reference count.
       Z_ADDREF_P(return_value);
     }
-    virtual std::string ToString() const {
+    std::string ToString() const override {
       std::stringstream ss;
       ss << TypeString() << "(" << id_ << ")";
       return ss.str();
@@ -340,28 +340,28 @@ class Value {
     using Obj::Obj;
     explicit JsObj(JsObjectMapper *m, v8::Local<v8::Object> o)
         : Obj(m->IdForJsObj(o)) { }
-    virtual const char *TypeString() const { return "JsObj"; }
+    const char *TypeString() const override { return "JsObj"; }
   };
   class PhpObj : public Obj {
    public:
     using Obj::Obj;
     explicit PhpObj(PhpObjectMapper *m, zval *o)
         : Obj(m->IdForPhpObj(o)) { }
-    virtual const char *TypeString() const { return "PhpObj"; }
+    const char *TypeString() const override { return "PhpObj"; }
   };
   class Wait : public Base {
    public:
     Wait() { }
-    virtual const char *TypeString() const { return "Wait"; }
-    virtual v8::Local<v8::Value> ToJs(JsObjectMapper *m) const {
+    const char *TypeString() const override { return "Wait"; }
+    v8::Local<v8::Value> ToJs(JsObjectMapper *m) const override {
       Nan::EscapableHandleScope scope;
       // Default serialize as a null for safety; the MessageToJs should
       // handle this specially by calling MessageToJs::MakeCallback() and
       // replacing the value.
       return scope.Escape(Nan::Null());
     }
-    virtual void ToPhp(PhpObjectMapper *m, zval *return_value,
-                       zval **return_value_ptr TSRMLS_DC) const {
+    void ToPhp(PhpObjectMapper *m, zval *return_value,
+                       zval **return_value_ptr TSRMLS_DC) const override {
       node_php_jswait_create(return_value TSRMLS_CC);
     }
   };
@@ -542,10 +542,10 @@ class Value {
   inline void ToPhp(PhpObjectMapper *m, ZVal &z TSRMLS_DC) const {
     ToPhp(m, z.Ptr(), z.PtrPtr() TSRMLS_CC);
   }
-  bool IsEmpty() const {
+  inline bool IsEmpty() const {
     return (type_ == VALUE_EMPTY);
   }
-  bool IsWait() const {
+  inline bool IsWait() const {
     return (type_ == VALUE_WAIT);
   }
   bool AsBool() const {

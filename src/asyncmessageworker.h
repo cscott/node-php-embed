@@ -44,17 +44,17 @@ class AsyncMapperChannel : public MapperChannel {
     uv_mutex_destroy(&id_lock_);
   }
   // JsObjectMapper interface
-  virtual objid_t IdForJsObj(const v8::Local<v8::Object> o);
-  virtual v8::Local<v8::Object> JsObjForId(objid_t id);
+  objid_t IdForJsObj(const v8::Local<v8::Object> o) override;
+  v8::Local<v8::Object> JsObjForId(objid_t id) override;
   // PhpObjectMapper interface
-  virtual objid_t IdForPhpObj(zval *o);
-  virtual zval *PhpObjForId(objid_t id TSRMLS_DC);
+  objid_t IdForPhpObj(zval *o) override;
+  zval *PhpObjForId(objid_t id TSRMLS_DC) override;
   // ObjectMapper interfaces
-  virtual bool IsValid();
+  bool IsValid() override;
   // JsMessageChannel interface
-  virtual void SendToJs(Message *m, MessageFlags flags TSRMLS_DC) const;
+  void SendToJs(Message *m, MessageFlags flags TSRMLS_DC) const override;
   // PhpMessageChannel interface
-  virtual void SendToPhp(Message *m, MessageFlags flags) const;
+  void SendToPhp(Message *m, MessageFlags flags) const override;
 
  private:
   // Callable from both threads:
@@ -137,10 +137,10 @@ class AsyncMapperChannel : public MapperChannel {
    public:
     explicit JsStartupMapper(AsyncMessageWorker *worker)
         : channel_(&(worker->channel_)) { }
-    virtual objid_t IdForJsObj(const v8::Local<v8::Object> o) {
+    objid_t IdForJsObj(const v8::Local<v8::Object> o) override {
       return channel_->IdForJsObj(o);
     }
-    virtual v8::Local<v8::Object> JsObjForId(objid_t id) {
+    v8::Local<v8::Object> JsObjForId(objid_t id) override {
       assert(false); return Nan::New<v8::Object>();
     }
    private:
@@ -154,7 +154,7 @@ class AsyncMapperChannel : public MapperChannel {
 
  private:
   // Allow subclass to have access to a JsObjectMapper in the OKCallback.
-  virtual void HandleOKCallback() {
+  void HandleOKCallback() final {
     HandleOKCallback(&channel_);
   }
 
@@ -162,7 +162,7 @@ class AsyncMapperChannel : public MapperChannel {
     friend class AsyncMessageWorker;
     explicit JsCleanupSyncMsg(AsyncMessageWorker *that)
         : MessageToJs(&(that->channel_), NULL, true), that_(that) { }
-    virtual void InJs(JsObjectMapper *m) {
+    void InJs(JsObjectMapper *m) override {
       TRACE("> JsCleanupSyncMsg");
       // All previous PHP requests should have been serviced by now.
       objid_t last = that_->channel_.ClearAllJsIds();
@@ -181,13 +181,13 @@ class AsyncMapperChannel : public MapperChannel {
 
    protected:
     // Shutdown the JS queue after the response to this message.
-    virtual bool IsShutdown() { return true; }
+    bool IsShutdown() override { return true; }
 
    private:
     AsyncMessageWorker *that_;
   };
 
-  void Execute() {
+  void Execute() final {
     TRACE("> AsyncMessageWorker");
     TSRMLS_FETCH();
     /* Start up an event loop for handling JS->PHP requests. */

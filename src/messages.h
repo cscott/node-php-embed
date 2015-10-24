@@ -93,7 +93,7 @@ class MessageToPhp : public Message {
   inline bool IsSync() { return is_sync_; }
   // This is the "request" portion of the message, executed on the PHP
   // side and sending its result back to JS.
-  void ExecutePhp(JsMessageChannel *channel TSRMLS_DC) {
+  void ExecutePhp(JsMessageChannel *channel TSRMLS_DC) override {
     if (mapper_->IsValid()) {
       zend_try {
         InPhp(mapper_ TSRMLS_CC);
@@ -118,7 +118,7 @@ class MessageToPhp : public Message {
   }
   // This is the "response" portion of the message, executed on the JS
   // side to dispatch results and/or cleanup.
-  void ExecuteJs(PhpMessageChannel *channel) {
+  void ExecuteJs(PhpMessageChannel *channel) override {
     processed_ = true;
     if (is_sync_) {
       return;  // Caller will handle return value & exceptions.
@@ -188,7 +188,7 @@ class MessageToJs : public Message {
   inline bool IsSync() { return is_sync_; }
   // This is the "request" portion of the message, executed on the
   // JS side and sending its result back to PHP.
-  void ExecuteJs(PhpMessageChannel *channel) {
+  void ExecuteJs(PhpMessageChannel *channel) override {
     // Keep a pointer to local stack space so that recursive invocations
     // can signal us without touching the message object. (See below.)
     bool local_flag = false, *local_flag_ptr =
@@ -247,7 +247,7 @@ class MessageToJs : public Message {
   }
   // This is the "response" portion of the message, executed on the
   // PHP side to dispatch results and/or cleanup.
-  void ExecutePhp(JsMessageChannel *channel TSRMLS_DC) {
+  void ExecutePhp(JsMessageChannel *channel TSRMLS_DC) override {
     processed_ = true;
     if (is_sync_) {
       return;  // Caller will handle return value & exceptions.
@@ -361,9 +361,6 @@ class MessageToJs : public Message {
       msg->ExecuteJs(msg->stashedChannel_);
       TRACE("<");
   }
-  bool IsHandled() {
-    return (js_callback_data_ && js_callback_data_->is_handled());
-  }
 
   ZVal php_callback_;
   bool is_sync_;
@@ -382,7 +379,7 @@ class PhpGetPropertyMsg : public MessageToPhp {
         obj_(m, obj), name_(m, name) { }
 
  protected:
-  virtual void InPhp(PhpObjectMapper *m TSRMLS_DC) {
+  void InPhp(PhpObjectMapper *m TSRMLS_DC) override {
     ZVal obj{ZEND_FILE_LINE_C}, name{ZEND_FILE_LINE_C};
     zval *r;
     zend_class_entry *ce;

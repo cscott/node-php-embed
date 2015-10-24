@@ -62,7 +62,7 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
   // Executed inside the PHP thread.  It is not safe to access V8 or
   // V8 data structures here, so everything we need for input and output
   // should go on `this`.
-  virtual void Execute(MapperChannel *channel TSRMLS_DC) {
+  void Execute(MapperChannel *channel TSRMLS_DC) override {
     TRACE("> PhpRequestWorker");
     if (php_request_startup(TSRMLS_C) == FAILURE) {
       Nan::ThrowError("can't create request");
@@ -98,7 +98,7 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
     // The remainder of cleanup is done in AfterExecute after that's all done.
     TRACE("< PhpRequestWorker");
   }
-  virtual void AfterExecute(TSRMLS_D) {
+  void AfterExecute(TSRMLS_D) override {
     TRACE("> PhpRequestWorker");
     NODE_PHP_EMBED_G(worker) = NULL;
     NODE_PHP_EMBED_G(channel) = NULL;
@@ -109,7 +109,7 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
   // Executed when the async work is complete.
   // This function will be run inside the main event loop
   // so it is safe to use V8 again.
-  virtual void HandleOKCallback(JsObjectMapper *m) {
+  void HandleOKCallback(JsObjectMapper *m) override {
     Nan::HandleScope scope;
     v8::Local<v8::Value> argv[] = {
       Nan::Null(),

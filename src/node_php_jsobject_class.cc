@@ -83,7 +83,7 @@ class JsHasPropertyMsg : public MessageToJs {
   }
 
  protected:
-  virtual void InJs(JsObjectMapper *m) {
+  void InJs(JsObjectMapper *m) override {
     TRACE("> JsHasPropertyMsg");
     retval_.SetBool(false);
     v8::Local<v8::Object> jsObj = Nan::To<v8::Object>(object_.ToJs(m))
@@ -195,7 +195,7 @@ class JsReadPropertyMsg : public MessageToJs {
   }
 
  protected:
-  virtual void InJs(JsObjectMapper *m) {
+  void InJs(JsObjectMapper *m) override {
     TRACE("> JsReadPropertyMsg");
     v8::Local<v8::Object> jsObj = Nan::To<v8::Object>(object_.ToJs(m))
       .ToLocalChecked();
@@ -250,7 +250,7 @@ class JsWritePropertyMsg : public MessageToJs {
   }
 
  protected:
-  virtual void InJs(JsObjectMapper *m) {
+  void InJs(JsObjectMapper *m) override {
     TRACE("> HasPropertyMsg");
     v8::Local<v8::Object> jsObj = Nan::To<v8::Object>(object_.ToJs(m))
       .ToLocalChecked();
@@ -299,7 +299,7 @@ class JsDeletePropertyMsg : public MessageToJs {
   }
 
  protected:
-  virtual void InJs(JsObjectMapper *m) {
+  void InJs(JsObjectMapper *m) override {
     TRACE("> DeletePropertyMsg");
     v8::Local<v8::Object> jsObj = Nan::To<v8::Object>(object_.ToJs(m))
       .ToLocalChecked();
@@ -347,7 +347,7 @@ class JsInvokeMsg : public MessageToJs {
   virtual ~JsInvokeMsg() { delete[] argv_; }
 
  protected:
-  virtual void InJs(JsObjectMapper *m) {
+  void InJs(JsObjectMapper *m) override {
     TRACE("> JsInvokeMsg");
     Nan::MaybeLocal<v8::Object> jsObj =
       Nan::To<v8::Object>(object_.ToJs(m));
