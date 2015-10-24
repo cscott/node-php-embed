@@ -180,7 +180,7 @@ PHP_MINIT_FUNCTION(node_php_jsbuffer_class) {
   TRACE("> PHP_MINIT_FUNCTION");
   zend_class_entry ce;
   /* JsBuffer class */
-  INIT_CLASS_ENTRY(ce, "JsBuffer", node_php_jsbuffer_methods);
+  INIT_CLASS_ENTRY(ce, "Js\\Buffer", node_php_jsbuffer_methods);
   php_ce_jsbuffer = zend_register_internal_class(&ce TSRMLS_CC);
   php_ce_jsbuffer->ce_flags |= ZEND_ACC_FINAL;
   php_ce_jsbuffer->create_object = node_php_jsbuffer_new;

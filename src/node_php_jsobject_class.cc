@@ -641,7 +641,7 @@ PHP_MINIT_FUNCTION(node_php_jsobject_class) {
   TRACE("> PHP_MINIT_FUNCTION");
   zend_class_entry ce;
   /* JsObject Class */
-  INIT_CLASS_ENTRY(ce, "JsObject", node_php_jsobject_methods);
+  INIT_CLASS_ENTRY(ce, "Js\\Object", node_php_jsobject_methods);
   php_ce_jsobject = zend_register_internal_class(&ce TSRMLS_CC);
   php_ce_jsobject->ce_flags |= ZEND_ACC_FINAL;
   php_ce_jsobject->create_object = node_php_jsobject_new;

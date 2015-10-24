@@ -39,9 +39,68 @@ parameter.
     - `stream`:
         A node `stream.Writable` to accept output from the PHP request.
         If not specified, defaults to `process.stdout`.
+    - `context`:
+        A JavaScript object which will be made available to the PHP
+        request in `$_SERVER['CONTEXT']`.
 *   `callback` *(optional)*: A standard node callback.  The first argument
     is non-null if an exception was raised. The second argument is the
     result of the PHP evaluation, converted to a string.
+
+# PHP API
+
+From the PHP side, there are three new classes defined, all in the
+`Js` namespace, and one new property defined in the `$_SERVER`
+superglobal.
+
+## `$_SERVER['CONTEXT']`
+This is the primary mechanism for passing data from the node
+process to the PHP request.  You can pass over a reference to
+a JavaScript object, and populate it with whatever functions
+or data you wish to make available to the PHP code.
+
+## class `Js\Object`
+This is the class which wraps JavaScript objects visible to PHP code.
+You can't create new objects of this type except by invoking
+JavaScript functions/methods/constructors.
+
+## class `Js\Buffer`
+This class wraps a PHP string to indicate that it should be passed to
+JavaScript as a node `Buffer` object, instead of decoded to UTF-8 and
+converted to a JavaScript String.  Assuming that a node-style
+Writable stream is made available to PHP as `$stream`, compare:
+
+```php
+# The PHP string "abc" is decoded as UTF8 to form a JavaScript string,
+# which is then re-encoded as UTF8 and written to the stream:
+$stream.write("abc", "utf8");
+# The PHP string "abc" is treated as a byte-stream and not de/encoded.
+$stream.write(new Js\Buffer("abc"));
+# Write to the stream synchronously (see description of next class)
+$stream.write(new Js\Buffer("abc"), new Js\Wait());
+```
+
+## class `Js\Wait`
+This class allows you to invoke asynchronous JavaScript functions from
+PHP code as if they were synchronous.  You create a new instance of
+`Js\Wait` and pass that to the function where it would expect a
+standard node-style callback.  For example, if the JavaScript
+`setTimeout` function were made available to PHP as `$setTimeout`, then:
+```php
+$setTimeout(new Js\Wait(), 5000);
+```
+would halt the PHP thread for 5 seconds.  More usefully, if you were
+to make the node `fs` module available to PHP as `$fs`, then:
+```php
+$contents = $fs.readFile('path/to/file', 'utf8', new Js\Wait());
+```
+would invoke the `readFile` method asynchronously in the node context,
+but block the PHP thread until its callback was invoked.  The result
+returned in the callback would then be used as the return value for
+the function invocation, resulting in `$contents` getting the result
+of reading the file.
+
+Note that calls using `Js\Wait` block the PHP thread but do not
+block the node thread.
 
 # INSTALLING
 

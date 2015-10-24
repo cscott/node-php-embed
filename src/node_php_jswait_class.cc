@@ -127,7 +127,7 @@ PHP_MINIT_FUNCTION(node_php_jswait_class) {
   TRACE("> PHP_MINIT_FUNCTION");
   zend_class_entry ce;
   /* JsWait class */
-  INIT_CLASS_ENTRY(ce, "JsWait", node_php_jswait_methods);
+  INIT_CLASS_ENTRY(ce, "Js\\Wait", node_php_jswait_methods);
   php_ce_jswait = zend_register_internal_class(&ce TSRMLS_CC);
   php_ce_jswait->ce_flags |= ZEND_ACC_FINAL;
   php_ce_jswait->create_object = node_php_jswait_new;
