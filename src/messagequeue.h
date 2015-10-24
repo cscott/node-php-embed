@@ -9,6 +9,8 @@
 
 #include "nan.h"
 
+#include "src/macros.h"
+
 namespace node_php_embed {
 
 class Message;
@@ -92,7 +94,12 @@ class MessageQueue {
       was_shutdown = true;
     }
     uv_mutex_unlock(&lock_);
-    assert(!was_shutdown);  // shouldn't happen (but don't leave locked)
+    if (was_shutdown) {
+      // Shouldn't happen (but assert after releasing the lock)
+      NPE_ERROR("Push after shutdown :(");
+      assert(false);
+    }
+    assert(!was_shutdown);
   }
   uv_async_t *async_;
   uv_mutex_t lock_;
