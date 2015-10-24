@@ -4,8 +4,20 @@
 #ifndef NODE_PHP_EMBED_MACROS_H_
 #define NODE_PHP_EMBED_MACROS_H_
 
+// #define NODE_PHP_EMBED_TRACE
+
+#ifdef NO_GETTID
+# define NPE_THREADFMT
+# define NPE_THREADID
+#else
+# include <sys/syscall.h>
+# define NPE_THREADFMT "[%lu] "
+# define NPE_THREADID syscall(SYS_gettid),
+#endif
+
 #define NPE_ERRORX(msg, ...) \
-  fprintf(stderr, msg " %s\n", __VA_ARGS__, __func__)
+  fprintf(stderr, NPE_THREADFMT msg " %s\n", NPE_THREADID \
+          __VA_ARGS__, __func__)
 #define NPE_ERROR(msg) \
   NPE_ERRORX(msg "%s", "") /* hack to eat up required argument */
 
