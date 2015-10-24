@@ -138,7 +138,6 @@ class AsyncMapperChannel : public MapperChannel {
  * and we've got special support for two-way message queues.
  */
 /*abstract*/ class AsyncMessageWorker : public Nan::AsyncWorker {
-  typedef std::pair<AsyncMessageWorker *, uv_loop_t*> worker_and_loop;
   friend class amw::AsyncMapperChannel;
  public:
   explicit AsyncMessageWorker(Nan::Callback *callback)
@@ -151,7 +150,7 @@ class AsyncMapperChannel : public MapperChannel {
         next_id_(1) {
     // Set up JS async loop (PHP side will be done in Execute).
     uv_async_init(uv_default_loop(), js_queue_.async(), JsAsyncMessage_);
-    js_queue_.async()->data = new worker_and_loop(this, NULL);
+    js_queue_.async()->data = this;
     uv_mutex_init(&id_lock_);
 
     js_obj_to_id_.Reset(v8::NativeWeakMap::New(v8::Isolate::GetCurrent()));
@@ -192,8 +191,7 @@ class AsyncMapperChannel : public MapperChannel {
     php_loop_ = new uv_loop_t;
     uv_loop_init(php_loop_);
     uv_async_init(php_loop_, php_queue_.async(), PhpAsyncMessage_);
-    worker_and_loop *pair = new worker_and_loop(this, php_loop_);
-    php_queue_.async()->data = pair;
+    php_queue_.async()->data = this;
     // Unref the async handle so it doesn't prevent the loop from finishing.
     uv_unref(reinterpret_cast<uv_handle_t*>(php_queue_.async()));
     /* Now invoke the "real" Execute(), in the subclass. */
@@ -217,20 +215,21 @@ class AsyncMapperChannel : public MapperChannel {
     /* Hook for additional PHP-side shutdown. */
     AfterExecute(TSRMLS_C);
     /* Tear down loop and queue */
-    pair->first = NULL;  // Can't touch asyncmessageworker after we return.
+    php_queue_.async()->data = NULL;  // Can't touch asyncmessageworker
+                                      // after we return.
     uv_close(reinterpret_cast<uv_handle_t*>(php_queue_.async()),
-             AsyncClose_);  // This close operation completes asynchronously.
+             AsyncClose_);  // This close operation completes in the php_loop_
+    uv_run(php_loop_, UV_RUN_ONCE);  // Let the close complete.
+    uv_loop_close(php_loop_);
+    delete php_loop_;
     TRACE("> AsyncMessageWorker");
   }
   NAN_INLINE static void AsyncClose_(uv_handle_t* handle) {
     TRACE(">");
-    worker_and_loop *pair = static_cast<worker_and_loop*>(handle->data);
-    assert(!pair->first);
-    if (pair->second) {
-      TRACE("! loop close");
-      uv_loop_close(pair->second);
-      delete pair->second;
-    }
+#ifndef NDEBUG
+    AsyncMessageWorker *worker = static_cast<AsyncMessageWorker*>(handle->data);
+    assert(!worker);
+#endif
     delete reinterpret_cast<uv_async_t*>(handle);
     TRACE("<");
   }
@@ -241,8 +240,7 @@ class AsyncMapperChannel : public MapperChannel {
     // PHP-side shutdown is complete by the time the destructor is called.
     // Tear down JS-side queue.  (Completion is async, but that's okay.)
     uv_async_t *async = js_queue_.async();
-    worker_and_loop *pair = static_cast<worker_and_loop*>(async->data);
-    pair->first = NULL;  // can't touch asyncmessageworker after we return.
+    async->data = NULL;  // can't touch asyncmessageworker after we return.
     uv_close(reinterpret_cast<uv_handle_t*>(async), AsyncClose_);
     // Mop up the pieces.
     js_obj_to_id_.Reset();
@@ -371,9 +369,9 @@ class AsyncMapperChannel : public MapperChannel {
   }
 
   NAN_INLINE static NAUV_WORK_CB(JsAsyncMessage_) {
-    worker_and_loop *pair = static_cast<worker_and_loop*>(async->data);
-    if (pair->first) {
-      pair->first->ProcessJs(NULL);
+    AsyncMessageWorker *worker = static_cast<AsyncMessageWorker*>(async->data);
+    if (worker) {
+      worker->ProcessJs(NULL);
     } else {
       NPE_ERROR("! JsAsyncMessage after shutdown");  // Shouldn't happen.
     }
@@ -448,10 +446,10 @@ class AsyncMapperChannel : public MapperChannel {
   }
 
   NAN_INLINE static NAUV_WORK_CB(PhpAsyncMessage_) {
-    worker_and_loop *pair = static_cast<worker_and_loop*>(async->data);
-    if (pair->first) {
+    AsyncMessageWorker *worker = static_cast<AsyncMessageWorker*>(async->data);
+    if (worker) {
       TSRMLS_FETCH();
-      pair->first->ProcessPhp(NULL TSRMLS_CC);
+      worker->ProcessPhp(NULL TSRMLS_CC);
     } else {
       NPE_ERROR("! PhpAsyncMessage after shutdown");  // Shouldn't happen.
     }
