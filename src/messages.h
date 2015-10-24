@@ -13,18 +13,29 @@ namespace node_php_embed {
 
 class Message;
 
+enum class MessageFlags { ASYNC = 0, SYNC = 1, SHUTDOWN = 2 };
+
+// Very simple bitmask enum operations.
+constexpr int operator*(MessageFlags f) { return static_cast<int>(f); }
+constexpr MessageFlags operator|(MessageFlags f1, MessageFlags f2) {
+  return MessageFlags(*f1 | *f2);
+}
+static inline bool has_flags(MessageFlags f1, MessageFlags f2) {
+  return ((*f1) & (*f2)) == (*f2);
+}
+
 // Interfaces for sending messages to different threads.
 class JsMessageChannel {
  public:
   virtual ~JsMessageChannel() { }
   // If is_sync is true, will not return until response has been received.
-  virtual void SendToJs(Message *m, bool is_sync TSRMLS_DC) const = 0;
+  virtual void SendToJs(Message *m, MessageFlags flags TSRMLS_DC) const = 0;
 };
 class PhpMessageChannel {
  public:
   virtual ~PhpMessageChannel() { }
   // If is_sync is true, will not return until response has been received.
-  virtual void SendToPhp(Message *m, bool is_sync) const = 0;
+  virtual void SendToPhp(Message *m, MessageFlags flags) const = 0;
 };
 
 // Helpful mechanism for passing all these interfaces around as a
@@ -102,7 +113,7 @@ class MessageToPhp : public Message {
     // (Even for fire-and-forget messages, we want to execute the
     // destructor in the same thread as the constructor, so that
     // means we need to do a context switch back to JS.)
-    channel->SendToJs(this, false /*don't block!*/ TSRMLS_CC);
+    channel->SendToJs(this, MessageFlags::ASYNC TSRMLS_CC);
   }
   // This is the "response" portion of the message, executed on the JS
   // side to dispatch results and/or cleanup.
@@ -196,7 +207,7 @@ class MessageToJs : public Message {
       stashedChannel_ = channel;
       InJs(mapper_);
       if (*local_flag_ptr) {
-        // already handled, bail.
+        // Already handled, bail (without touching `this`!)
         tryCatch.Reset();
         TRACE("< already handled");
         return;
@@ -226,7 +237,9 @@ class MessageToJs : public Message {
       js_callback_data_->MarkHandled();
       *local_flag_ptr = true;
     }
-    channel->SendToPhp(this, false /*don't block!*/);
+    MessageFlags flags = MessageFlags::ASYNC;
+    if (IsShutdown()) { flags = flags | MessageFlags::SHUTDOWN; }
+    channel->SendToPhp(this, flags);
     // Note that as soon as we call SendToPhp we can't touch `this` anymore,
     // since the PHP side may have deallocated the message.
     TRACE("<");
@@ -269,6 +282,9 @@ class MessageToJs : public Message {
  protected:
   // This is the actual implementation of the JS-side "work".
   virtual void InJs(JsObjectMapper *m) = 0;
+  // Override this for a "shutdown" message, which will close
+  // the response queue after the response is sent.
+  virtual bool IsShutdown() { return false; }
   // This allows invoking async methods on the JS side.
   v8::Local<v8::Function> MakeCallback() {
     TRACE(">");

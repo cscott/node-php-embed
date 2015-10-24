@@ -52,9 +52,9 @@ class AsyncMapperChannel : public MapperChannel {
   // ObjectMapper interfaces
   virtual bool IsValid();
   // JsMessageChannel interface
-  virtual void SendToJs(Message *m, bool isSync TSRMLS_DC) const;
+  virtual void SendToJs(Message *m, MessageFlags flags TSRMLS_DC) const;
   // PhpMessageChannel interface
-  virtual void SendToPhp(Message *m, bool isSync) const;
+  virtual void SendToPhp(Message *m, MessageFlags flags) const;
 
  private:
   // Callable from both threads:
@@ -178,6 +178,11 @@ class AsyncMapperChannel : public MapperChannel {
       assert(last.Type() == IS_LONG);
       return (objid_t) Z_LVAL_P(last.Ptr());
     }
+
+   protected:
+    // Shutdown the JS queue after the response to this message.
+    virtual bool IsShutdown() { return true; }
+
    private:
     AsyncMessageWorker *that_;
   };
@@ -188,8 +193,9 @@ class AsyncMapperChannel : public MapperChannel {
     /* Start up an event loop for handling JS->PHP requests. */
     php_loop_ = new uv_loop_t;
     uv_loop_init(php_loop_);
-    uv_async_init(php_loop_, php_queue_.async(), PhpAsyncMessage_);
-    php_queue_.async()->data = this;
+    uv_async_t *a = php_queue_.async();
+    uv_async_init(php_loop_, a, PhpAsyncMessage_);
+    a->data = this;
     // Unref the async handle so it doesn't prevent the loop from finishing.
     uv_unref(reinterpret_cast<uv_handle_t*>(php_queue_.async()));
     /* Now invoke the "real" Execute(), in the subclass. */
@@ -201,11 +207,13 @@ class AsyncMapperChannel : public MapperChannel {
     objid_t last;
     {
       JsCleanupSyncMsg msg(this);
-      SendToJs(&msg, true TSRMLS_CC);
+      SendToJs(&msg, MessageFlags::SYNC TSRMLS_CC);
       last = msg.GetLastId(&channel_ TSRMLS_CC);
       // Exit this scope to dealloc msg before proceeding.
     }
     ProcessPhp(NULL TSRMLS_CC);  // A precaution; shouldn't be necessary.
+    a->data = NULL;
+    js_queue_.Shutdown();
     /* OK, queues are empty now, we can start tearing things down. */
     for (objid_t id = 1; id < last; id++) {
       // zvals need to be cleared on the PHP side.
@@ -216,14 +224,12 @@ class AsyncMapperChannel : public MapperChannel {
     /* Hook for additional PHP-side shutdown. */
     AfterExecute(TSRMLS_C);
     /* Tear down loop and queue */
-    uv_async_t *a = php_queue_.ClearAsync();
-    a->data = NULL;  // Can't touch asyncmessageworker after we return.
     // This close operation completes in the php_loop_
     uv_close(reinterpret_cast<uv_handle_t*>(a), AsyncClose_);
     uv_run(php_loop_, UV_RUN_DEFAULT);  // Let the close complete.
     uv_loop_close(php_loop_);
     delete php_loop_;
-    TRACE("> AsyncMessageWorker");
+    TRACE("< AsyncMessageWorker");
   }
 
   NAN_INLINE static void AsyncClose_(uv_handle_t* handle) {
@@ -239,7 +245,9 @@ class AsyncMapperChannel : public MapperChannel {
 
   /*** Methods callable only from the JavaScript side ***/
 
-  void SendToPhp(Message *m, bool isSync) {
+  void SendToPhp(Message *m, MessageFlags flags) {
+    bool isSync = has_flags(flags, MessageFlags::SYNC);
+    bool isShutdown = has_flags(flags, MessageFlags::SHUTDOWN);
     assert(m);
     php_queue_.Push(m);
     if (isSync || js_is_sync_) {
@@ -247,6 +255,9 @@ class AsyncMapperChannel : public MapperChannel {
       js_is_sync_++;
       ProcessJs(m);
       js_is_sync_--;
+    }
+    if (isShutdown) {
+      php_queue_.Shutdown();
     }
   }
 
@@ -269,11 +280,16 @@ class AsyncMapperChannel : public MapperChannel {
 
   /*** Methods callable only from the PHP side ***/
 
-  void SendToJs(Message *m, bool isSync TSRMLS_DC) {
+  void SendToJs(Message *m, MessageFlags flags TSRMLS_DC) {
+    bool isSync = has_flags(flags, MessageFlags::SYNC);
+    bool isShutdown = has_flags(flags, MessageFlags::SHUTDOWN);
     assert(m);
     js_queue_.Push(m);
     if (isSync) {
       ProcessPhp(m TSRMLS_CC);
+    }
+    if (isShutdown) {
+      js_queue_.Shutdown();
     }
   }
 
@@ -441,14 +457,14 @@ bool amw::AsyncMapperChannel::IsValid() {
 
 // JsMessageChannel interface -----------------------
 // Callable only from the PHP side.
-void amw::AsyncMapperChannel::SendToJs(Message *m,
-                                       bool isSync TSRMLS_DC) const {
-  worker_->SendToJs(m, isSync TSRMLS_CC);
+void amw::AsyncMapperChannel::SendToJs(Message *m, MessageFlags flags
+                                       TSRMLS_DC) const {
+  worker_->SendToJs(m, flags TSRMLS_CC);
 }
 // PhpMessageChannel interface -----------------------
 // Callable only from the JS side.
-void amw::AsyncMapperChannel::SendToPhp(Message *m, bool isSync) const {
-  worker_->SendToPhp(m, isSync);
+void amw::AsyncMapperChannel::SendToPhp(Message *m, MessageFlags flags) const {
+  worker_->SendToPhp(m, flags);
 }
 
 }  // namespace node_php_embed

@@ -22,6 +22,7 @@ extern "C" {
 #define USE_MAGIC_ISSET 0
 
 using node_php_embed::JsObjectMapper;
+using node_php_embed::MessageFlags;
 using node_php_embed::MessageToJs;
 using node_php_embed::ObjectMapper;
 using node_php_embed::Value;
@@ -149,7 +150,7 @@ PHP_METHOD(JsObject, __isset) {
   convert_to_string(member);
   JsHasPropertyMsg msg(obj->channel, NULL, true,  // Sync call.
                        obj->id, member, 0 TSRMLS_CC);
-  obj->channel->SendToJs(&msg, true TSRMLS_CC);   // Sync call.
+  obj->channel->SendToJs(&msg, MessageFlags::SYNC TSRMLS_CC);
   THROW_IF_EXCEPTION("JS exception thrown during __isset of \"%*s\"",
                      Z_STRLEN_P(member), Z_STRVAL_P(member));
   TRACE("<");
@@ -175,7 +176,7 @@ static int node_php_jsobject_has_property(zval *object, zval *member,
   FETCH_OBJ_ELSE(has_property, object, false);
   JsHasPropertyMsg msg(obj->channel, NULL, true,  // Sync call.
                        obj->id, member, has_set_exists TSRMLS_CC);
-  obj->channel->SendToJs(&msg, true TSRMLS_CC);   // Sync call.
+  obj->channel->SendToJs(&msg, MessageFlags::SYNC TSRMLS_CC);
   // Ok, result is in msg.retval_ or msg.exception_
   if (msg.HasException()) { return false; /* sigh */ }
   TRACE("<");
@@ -232,7 +233,7 @@ PHP_METHOD(JsObject, __get) {
   convert_to_string(member);
   JsReadPropertyMsg msg(obj->channel, NULL, true,  // Sync call.
                         obj->id, member, 0 TSRMLS_CC);
-  obj->channel->SendToJs(&msg, true TSRMLS_CC);    // Sync call.
+  obj->channel->SendToJs(&msg, MessageFlags::SYNC TSRMLS_CC);
   THROW_IF_EXCEPTION("JS exception thrown during __get of \"%*s\"",
                      Z_STRLEN_P(member), Z_STRVAL_P(member));
   msg.retval().ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
@@ -281,7 +282,7 @@ PHP_METHOD(JsObject, __set) {
   convert_to_string(member);
   JsWritePropertyMsg msg(obj->channel, NULL, true,  // Sync call.
                          obj->id, member, value TSRMLS_CC);
-  obj->channel->SendToJs(&msg, true TSRMLS_CC);     // Sync call.
+  obj->channel->SendToJs(&msg, MessageFlags::SYNC TSRMLS_CC);
   THROW_IF_EXCEPTION("JS exception thrown during __set of \"%*s\"",
                      Z_STRLEN_P(member), Z_STRVAL_P(member));
   msg.retval().ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
@@ -327,7 +328,7 @@ PHP_METHOD(JsObject, __unset) {
   convert_to_string(member);
   JsDeletePropertyMsg msg(obj->channel, NULL, true,  // Sync call.
                           obj->id, member TSRMLS_CC);
-  obj->channel->SendToJs(&msg, true TSRMLS_CC);      // Sync call.
+  obj->channel->SendToJs(&msg, MessageFlags::SYNC TSRMLS_CC);
   THROW_IF_EXCEPTION("JS exception thrown during __unset of \"%*s\"",
                      Z_STRLEN_P(member), Z_STRVAL_P(member));
   msg.retval().ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
@@ -445,7 +446,7 @@ PHP_METHOD(JsObject, __call) {
   }
   JsInvokeMsg msg(obj->channel, NULL, true,      // Sync call.
                   obj->id, member, argc, argv TSRMLS_CC);
-  obj->channel->SendToJs(&msg, true TSRMLS_CC);  // Sync call.
+  obj->channel->SendToJs(&msg, MessageFlags::SYNC TSRMLS_CC);
   THROW_IF_EXCEPTION("JS exception thrown during __call of \"%*s\"",
                      Z_STRLEN_P(member), Z_STRVAL_P(member));
   msg.retval().ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
@@ -467,7 +468,7 @@ PHP_METHOD(JsObject, __invoke) {
   JsInvokeMsg msg(obj->channel, NULL, true,      // Sync call.
                   obj->id, &member, argc, argv TSRMLS_CC);
   efree(argv);
-  obj->channel->SendToJs(&msg, true TSRMLS_CC);  // Sync call.
+  obj->channel->SendToJs(&msg, MessageFlags::SYNC TSRMLS_CC);
   THROW_IF_EXCEPTION("JS exception thrown during __invoke");
   msg.retval().ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
   TRACE("<");

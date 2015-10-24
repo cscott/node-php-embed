@@ -16,7 +16,8 @@ class Message;
 // A queue of messages passed between threads.
 class MessageQueue {
  public:
-  explicit MessageQueue(uv_async_t *async) : async_(async), data_() {
+  explicit MessageQueue(uv_async_t *async)
+      : async_(async), data_(), shutdown_(false) {
     uv_mutex_init(&lock_);
     uv_cond_init(&cond_);
   }
@@ -69,26 +70,35 @@ class MessageQueue {
     }
     return sawOne;
   }
-  uv_async_t *ClearAsync() {
-    uv_async_t *a = async_;
-    async_ = NULL;
-    return a;
+  // Shutdown the queue: no more messages will be pushed
+  // after this method is called.
+  void Shutdown() {
+    uv_mutex_lock(&lock_);
+    shutdown_ = true;
+    uv_mutex_unlock(&lock_);
   }
 
  private:
   void _Push(Message *m) {
+    bool was_shutdown = false;
     uv_mutex_lock(&lock_);
-    if (m) { data_.push_back(m); }
-    uv_cond_broadcast(&cond_);
-    uv_mutex_unlock(&lock_);
-    if (async_) {
-      uv_async_send(async_);
+    if (!shutdown_) {
+      if (m) { data_.push_back(m); }
+      uv_cond_broadcast(&cond_);
+      // on a shutdown message, async_ could be torn down as soon
+      // as the other thread wakes up, so do the send inside the lock.
+      if (async_) { uv_async_send(async_); }
+    } else {
+      was_shutdown = true;
     }
+    uv_mutex_unlock(&lock_);
+    assert(!was_shutdown);  // shouldn't happen (but don't leave locked)
   }
   uv_async_t *async_;
   uv_mutex_t lock_;
   uv_cond_t cond_;
   std::list<Message *> data_;
+  bool shutdown_;
 };
 
 }  // namespace node_php_embed
