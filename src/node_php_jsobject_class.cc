@@ -375,11 +375,12 @@ class JsInvokeMsg : public MessageToJs {
       return Nan::ThrowTypeError("method is not a function");
     }
     v8::Local<v8::Function> func = method.ToLocalChecked().As<v8::Function>();
+    ulong argc = argc_;
     v8::Local<v8::Value> *argv =
       static_cast<v8::Local<v8::Value>*>
-      (alloca(sizeof(v8::Local<v8::Value>) * argc_));
+      (alloca(sizeof(v8::Local<v8::Value>) * argc));
     bool sawWait = false;
-    for (ulong i = 0; i < argc_; i++) {
+    for (ulong i = 0; i < argc; i++) {
       new(&argv[i]) v8::Local<v8::Value>;
       if (argv_[i].IsWait() && !sawWait) {
         sawWait = true;
@@ -389,7 +390,7 @@ class JsInvokeMsg : public MessageToJs {
       }
     }
     Nan::MaybeLocal<v8::Value> result =
-      Nan::CallAsFunction(func, jsObj.ToLocalChecked(), argc_, argv);
+      Nan::CallAsFunction(func, jsObj.ToLocalChecked(), argc, argv);
     if (!result.IsEmpty() && !sawWait) {
       // XXX perhaps if the result is a promise, we should wait on it?
       // Better would be a PHP-side function we could call using the
