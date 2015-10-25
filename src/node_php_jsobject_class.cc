@@ -388,12 +388,8 @@ class JsInvokeMsg : public MessageToJs {
         argv[i] = argv_[i].ToJs(m);
       }
     }
-    // We have to actually use Nan::MakeCallback here, not just create a
-    // new function, or else process.nextTick will never fire!  See:
-    // https://github.com/nodejs/nan/blob/master/doc/node_misc.md#api_nan_make_callback
-    // https://github.com/tshemsedinov/io.js/commit/855af3dc5611a73331ea66aa147f8eff2787dd93
     Nan::MaybeLocal<v8::Value> result =
-      Nan::MakeCallback(jsObj.ToLocalChecked(), func, argc_, argv);
+      Nan::CallAsFunction(func, jsObj.ToLocalChecked(), argc_, argv);
     if (!result.IsEmpty() && !sawWait) {
       // XXX perhaps if the result is a promise, we should wait on it?
       // Better would be a PHP-side function we could call using the

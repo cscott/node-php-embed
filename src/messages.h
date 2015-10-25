@@ -188,13 +188,13 @@ class MessageToJs : public Message {
   inline bool IsSync() { return is_sync_; }
   // This is the "request" portion of the message, executed on the
   // JS side and sending its result back to PHP.
+  // A HandleScope will have already been set up for us.
   void ExecuteJs(PhpMessageChannel *channel) override {
     // Keep a pointer to local stack space so that recursive invocations
     // can signal us without touching the message object. (See below.)
     bool local_flag = false, *local_flag_ptr =
       local_flag_ptr_ ? local_flag_ptr_ :
       (local_flag_ptr_ = &local_flag);
-    Nan::HandleScope scope;
     TRACEX(">%s", js_callback_data_ ? " made callback" : "");
     if (mapper_->IsValid() && !js_callback_data_) {
       Nan::TryCatch tryCatch;

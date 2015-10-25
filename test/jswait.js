@@ -46,7 +46,7 @@ describe('Invoking asynchronous JS methods from PHP', function() {
       out.toString().should.equal('');
     });
   });
-  it.skip('should handle exceptions thrown sync before callback', function() {
+  it('should handle exceptions thrown sync before callback', function() {
     var out = new StringStream();
     return php.request({
       stream: out,
@@ -66,7 +66,7 @@ describe('Invoking asynchronous JS methods from PHP', function() {
       out.toString().should.equal('');
     });
   });
-  it.skip('should handle exceptions thrown sync after callback', function() {
+  it('should handle exceptions thrown sync after callback', function() {
     var out = new StringStream();
     return php.request({
       stream: out,

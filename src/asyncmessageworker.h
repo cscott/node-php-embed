@@ -102,6 +102,9 @@ class AsyncMapperChannel : public MapperChannel {
  public:
   explicit AsyncMessageWorker(Nan::Callback *callback)
       : AsyncWorker(callback), channel_(this),
+        // Create a no-op function to allow us to kick off node's next tick
+        kick_next_tick_(Nan::New<v8::Function>(NoOpFunction_, Nan::Null())),
+        // Queues for messages between PHP and JS.
         js_queue_(new uv_async_t),
         php_queue_(new uv_async_t),
         js_is_sync_(0) {
@@ -167,7 +170,7 @@ class AsyncMapperChannel : public MapperChannel {
       // All previous PHP requests should have been serviced by now.
       objid_t last = that_->channel_.ClearAllJsIds();
       // Empty the JS side queue.
-      that_->ProcessJs(NULL);
+      that_->ProcessJs(NULL, false /* we're inside a ProcessJs already */);
       // Ok, return to tell PHP the queues are empty.
       retval_.SetInt(last);
       TRACE("< JsCleanupSyncMsg");
@@ -254,7 +257,7 @@ class AsyncMapperChannel : public MapperChannel {
     if ((!isResponse) && (isSync || js_is_sync_)) {
       TRACE("! JS IS SYNC");
       js_is_sync_++;
-      ProcessJs(m);
+      ProcessJs(m, false /* not top level, don't kick the tick */);
       js_is_sync_--;
     }
     if (isShutdown) {
@@ -262,17 +265,28 @@ class AsyncMapperChannel : public MapperChannel {
     }
   }
 
-  bool ProcessJs(Message *match) {
+  void ProcessJs(Message *match, bool kickNextTick) {
     MapperChannel *channel = &channel_;
-    return js_queue_.DoProcess(match, [channel](Message *mm) {
+    // Start a handle scope.
+    Nan::HandleScope handle_scope;
+    // Enter appropriate context
+    v8::Context::Scope scope(kick_next_tick_.GetFunction()->CreationContext());
+    js_queue_.DoProcess(match, [channel](Message *mm) {
+      // Each message will get its own handle scope.
+      Nan::HandleScope scope;
       mm->ExecuteJs(channel);
     });
+    // Kick the tick.  See:
+    // https://github.com/nodejs/nan/issues/284#issuecomment-150887627
+    if (kickNextTick) {
+      kick_next_tick_.Call(0, NULL);
+    }
   }
 
   NAN_INLINE static NAUV_WORK_CB(JsAsyncMessage_) {
     AsyncMessageWorker *worker = static_cast<AsyncMessageWorker*>(async->data);
     if (worker) {
-      worker->ProcessJs(NULL);
+      worker->ProcessJs(NULL, true /* from uv loop, kick next tick */);
     } else {
       NPE_ERROR("! JsAsyncMessage after shutdown");  // Shouldn't happen.
     }
@@ -312,10 +326,16 @@ class AsyncMapperChannel : public MapperChannel {
     }
   }
 
+  static void NoOpFunction_(const Nan::FunctionCallbackInfo<v8::Value>& info) {
+    // do nothing here; it's only purpose is to kick off the next node tick.
+  }
+
   /*** Member fields ***/
 
   // Inner interface to export a clean API.
   amw::AsyncMapperChannel channel_;
+  // A no-op function to allow us to kick off node's next tick
+  Nan::Callback kick_next_tick_;
 
   // Queue for messages between PHP to JS.
   MessageQueue js_queue_;
