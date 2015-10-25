@@ -13,7 +13,7 @@ namespace node_php_embed {
 
 class Message;
 
-enum class MessageFlags { ASYNC = 0, SYNC = 1, SHUTDOWN = 2 };
+enum class MessageFlags { ASYNC = 0, SYNC = 1, RESPONSE = 2, SHUTDOWN = 4 };
 
 // Very simple bitmask enum operations.
 constexpr int operator*(MessageFlags f) { return static_cast<int>(f); }
@@ -113,7 +113,8 @@ class MessageToPhp : public Message {
     // (Even for fire-and-forget messages, we want to execute the
     // destructor in the same thread as the constructor, so that
     // means we need to do a context switch back to JS.)
-    channel->SendToJs(this, MessageFlags::ASYNC TSRMLS_CC);
+    channel->SendToJs(this, MessageFlags::ASYNC | MessageFlags::RESPONSE
+                      TSRMLS_CC);
   }
   // This is the "response" portion of the message, executed on the JS
   // side to dispatch results and/or cleanup.
@@ -237,7 +238,7 @@ class MessageToJs : public Message {
       js_callback_data_->MarkHandled();
       *local_flag_ptr = true;
     }
-    MessageFlags flags = MessageFlags::ASYNC;
+    MessageFlags flags = MessageFlags::ASYNC | MessageFlags::RESPONSE;
     if (IsShutdown()) { flags = flags | MessageFlags::SHUTDOWN; }
     channel->SendToPhp(this, flags);
     // Note that as soon as we call SendToPhp we can't touch `this` anymore,

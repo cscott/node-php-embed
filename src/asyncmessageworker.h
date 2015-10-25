@@ -247,10 +247,11 @@ class AsyncMapperChannel : public MapperChannel {
 
   void SendToPhp(Message *m, MessageFlags flags) {
     bool isSync = has_flags(flags, MessageFlags::SYNC);
+    bool isResponse = has_flags(flags, MessageFlags::RESPONSE);
     bool isShutdown = has_flags(flags, MessageFlags::SHUTDOWN);
-    assert(m);
+    assert(m); assert(!(isSync && isResponse));
     php_queue_.Push(m);
-    if (isSync || js_is_sync_) {
+    if ((!isResponse) && (isSync || js_is_sync_)) {
       TRACE("! JS IS SYNC");
       js_is_sync_++;
       ProcessJs(m);
@@ -282,8 +283,9 @@ class AsyncMapperChannel : public MapperChannel {
 
   void SendToJs(Message *m, MessageFlags flags TSRMLS_DC) {
     bool isSync = has_flags(flags, MessageFlags::SYNC);
+    bool isResponse = has_flags(flags, MessageFlags::RESPONSE);
     bool isShutdown = has_flags(flags, MessageFlags::SHUTDOWN);
-    assert(m);
+    assert(m); assert(!(isSync && isResponse));
     js_queue_.Push(m);
     if (isSync) {
       ProcessPhp(m TSRMLS_CC);
