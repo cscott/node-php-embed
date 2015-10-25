@@ -201,7 +201,7 @@ class MessageToJs : public Message {
       // We might call MakeCallback while executing InJs, and then the client
       // code may execute the callback synchronously, which would mean that
       // we'd invoke CallbackFunction_ and re-enter ExecuteJS before returning
-      // from InJs! And now just that, but the recursive ExecuteJs will have
+      // from InJs! And not just that, but the recursive ExecuteJs will have
       // sent a message to PHP, so the message itself could be deallocated
       // before we return.  Stash the channel before invoking InJs() and use
       // the local_flag_ptr to bail out without touching `this` again.
@@ -213,13 +213,17 @@ class MessageToJs : public Message {
         TRACE("< already handled");
         return;
       }
+      // We're out of danger now; reset local_flag_ptr_ so that any async
+      // exeuctions of ExecuteJs don't use our stack pointer after it's popped.
+      local_flag_ptr_ = NULL;
+      // If an exception was thrown, set exception_
       if (tryCatch.HasCaught()) {
-        // If an exception was thrown, set exception_
         exception_.Set(mapper_, tryCatch.Exception());
         tryCatch.Reset();
       }
+      // If we made an async callback and didn't throw a sync exception,
+      // we're done now; we'll do the rest of this function from the callback.
       if (js_callback_data_ && exception_.IsEmpty()) {
-        // We'll trigger the rest of this from the callback.
         TRACE("< made callback");
         return;
       }
@@ -233,7 +237,7 @@ class MessageToJs : public Message {
     // (Even for fire-and-forget messages, we want to execute the
     // destructor in the same thread as the constructor, so that
     // means we need to do a context switch back to PHP.)
-    TRACE("- sending response to PHP");
+    TRACEX("- sending response to PHP; JsCallbackData=%p", js_callback_data_);
     if (js_callback_data_) {
       js_callback_data_->MarkHandled();
       *local_flag_ptr = true;
@@ -291,6 +295,7 @@ class MessageToJs : public Message {
     TRACE(">");
     Nan::EscapableHandleScope scope;
     js_callback_data_ = new JsCallbackData(this);
+    TRACEX("- JsCallbackData=%p", js_callback_data_);
     v8::Local<v8::Function> cb = Nan::New<v8::Function>(
       CallbackFunction_, Nan::New<v8::External>(js_callback_data_));
     js_callback_data_->Wrap(cb);
@@ -310,11 +315,12 @@ class MessageToJs : public Message {
       handle_.Reset(cb);
     }
     void MarkHandled() {
-      TRACE(">");
+      TRACEX("> %p", this);
+      assert(!is_handled_);
       is_handled_ = true;
       handle_.SetWeak<JsCallbackData>(this, Destroy_,
                                       Nan::WeakCallbackType::kParameter);
-      TRACE("<");
+      TRACEX("< %p", this);
     }
     inline MessageToJs *msg() { return msg_; }
     inline bool is_handled() { return is_handled_; }
@@ -342,6 +348,7 @@ class MessageToJs : public Message {
       TRACE(">");
       JsCallbackData *data = reinterpret_cast<JsCallbackData*>
           (info.Data().As<v8::External>()->Value());
+      TRACEX("- JsCallbackData=%p", data);
       if (data->is_handled()) {
         // not safe to touch msg, it may have been deallocated.
         TRACE("< already handled");
