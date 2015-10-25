@@ -528,6 +528,7 @@ static void node_php_jsobject_free_storage(void *object,
   zend_object_std_dtor(&c->std TSRMLS_CC);
 
   // XXX We ought to deregister the id here.
+  TRACE("PHP deallocate");
 
   // You'd first remove the zval from the id->zval mapping table,
   // since that could always been recreated, and then fire-and-forget

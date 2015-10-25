@@ -134,6 +134,12 @@ class AsyncMapperChannel : public MapperChannel {
   // and the queues have been emptied.
   virtual void AfterExecute(TSRMLS_D) { }
 
+  // We have SaveTo and GetFrom; we need DeleteFrom as well.
+  NAN_INLINE void DeleteFromPersistent(uint32_t index) {
+    Nan::HandleScope scope;
+    Nan::New(persistentHandle)->Delete(index);
+  }
+
  protected:
   // Limited ObjectMapper for use during subclass initialization.
   class JsStartupMapper : public JsObjectMapper {
@@ -373,14 +379,17 @@ objid_t amw::AsyncMapperChannel::IdForJsObj(const v8::Local<v8::Object> o) {
 // Map index to JS object (or create it if necessary).
 v8::Local<v8::Object> amw::AsyncMapperChannel::JsObjForId(objid_t id) {
   Nan::EscapableHandleScope scope;
-  Nan::MaybeLocal<v8::Object> maybeObj =
-    Nan::To<v8::Object>(worker_->GetFromPersistent(id));
-  if (!maybeObj.IsEmpty()) {
-    return scope.Escape(maybeObj.ToLocalChecked());
+  v8::Local<v8::Value> v = worker_->GetFromPersistent(id);
+  if (v->IsObject()) {
+    return scope.Escape(Nan::To<v8::Object>(v).ToLocalChecked());
+  }
+  if (!IsValid()) {
+    // This happens when we return an object at the tail of the request.
+    return scope.Escape(PhpObject::Create(NULL, 0));
   }
   // Make a wrapper!
   v8::Local<v8::NativeWeakMap> jsObjToId = Nan::New(js_obj_to_id_);
-  v8::Local<v8::Object> o = node_php_phpobject_create(this, id);
+  v8::Local<v8::Object> o = PhpObject::Create(this, id);
   jsObjToId->Set(o, Nan::New(id));
   worker_->SaveToPersistent(id, o);
   return scope.Escape(o);
@@ -389,16 +398,16 @@ v8::Local<v8::Object> amw::AsyncMapperChannel::JsObjForId(objid_t id) {
   // Free JS references associated with an id.
 void amw::AsyncMapperChannel::ClearJsId(objid_t id) {
   Nan::HandleScope scope;
-  Nan::MaybeLocal<v8::Object> o =
-    Nan::To<v8::Object>(worker_->GetFromPersistent(id));
-  if (o.IsEmpty()) { return; }
+  v8::Local<v8::Value> v = worker_->GetFromPersistent(id);
+  if (!v->IsObject()) { return; }
+  v8::Local<v8::Object> o = Nan::To<v8::Object>(v).ToLocalChecked();
   // There might be other live references to this object; set its
   // id to 0 to neuter it.
-  node_php_phpobject_maybe_neuter(o.ToLocalChecked());
+  PhpObject::MaybeNeuter(this, o);
   // Remove it from our maps (and release our persistent reference).
   v8::Local<v8::NativeWeakMap> jsObjToId = Nan::New(js_obj_to_id_);
-  jsObjToId->Delete(o.ToLocalChecked());
-  worker_->SaveToPersistent(id, Nan::Undefined());
+  jsObjToId->Delete(o);
+  worker_->DeleteFromPersistent(id);
 }
 
 objid_t amw::AsyncMapperChannel::ClearAllJsIds() {

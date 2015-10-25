@@ -320,6 +320,9 @@ NAN_MODULE_INIT(ModuleInit) {
     node_php_embed_register_server_variables;
   // Most of init will be done lazily in node_php_embed_ensure_init()
 
+  // Initialize object type allowing access to PHP objects from JS
+  node_php_embed::PhpObject::Init(target);
+
   // Export functions
   NAN_EXPORT(target, setIniPath);
   NAN_EXPORT(target, request);

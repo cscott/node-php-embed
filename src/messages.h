@@ -267,6 +267,8 @@ class MessageToJs : public Message {
       retval_.ToPhp(mapper_, r TSRMLS_CC);
     }
     if (!php_callback_.IsNull()) {
+      // This case would be taken if we were invoking a sync JS method
+      // asynchronously from the PHP side.
       ZVal closureRetval{ZEND_FILE_LINE_C};
       // Use plain zval to avoid allocating copy of method name.
       zval method; ZVAL_STRINGL(&method, "call", 4, 0);
