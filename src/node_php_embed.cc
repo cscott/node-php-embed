@@ -77,17 +77,19 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
         source_.ToPhp(channel, source TSRMLS_CC);
         assert(Z_TYPE_P(*source) == IS_STRING);
         CHECK_ZVAL_STRING(*source);
-        if (FAILURE == zend_eval_string_ex(Z_STRVAL_P(*source), *result,
-                                           eval_msg, true TSRMLS_CC)) {
-          if (EG(exception)) {
-            zend_clear_exception(TSRMLS_C);
-            SetErrorMessage("<threw exception>");
-          } else {
-            SetErrorMessage("<eval failure>");
-          }
+        zend_eval_stringl_ex(Z_STRVAL_P(*source), Z_STRLEN_P(*source), *result,
+                            eval_msg, false TSRMLS_CC);
+        if (EG(exception)) {
+          // Can't call zend_clear_exception because there isn't a current
+          // execution stack (ie, `EG(current_execute_data)`)
+          zval *e = EG(exception);
+          EG(exception) = NULL;
+          convert_to_string(e);
+          SetErrorMessage(Z_STRVAL_P(e));
+          zval_ptr_dtor(&e);
         }
         result_.Set(channel, *result TSRMLS_CC);
-        result_.TakeOwnership();  // Since this will outlive scope of `source`.
+        result_.TakeOwnership();  // Since this will outlive scope of `result`.
       } zend_catch {
         SetErrorMessage("<bailout>");
       } zend_end_try();
