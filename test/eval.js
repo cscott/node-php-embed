@@ -29,7 +29,7 @@ describe('Return values from PHP request', function() {
   });
   it('should return wrapped PHP objects', function() {
     return php.request({ source: 'new stdClass()' }).then(function(v) {
-      v.should.be.instanceof(php.PhpObject);
+      (v instanceof php.PhpObject).should.be.true();
     });
   });
 });

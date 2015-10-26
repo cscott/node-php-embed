@@ -20,6 +20,7 @@ class MapperChannel;
 
 class PhpObject : public Nan::ObjectWrap {
  public:
+  enum class PropertyOp { GETTER, SETTER, QUERY, DELETER };
   // Register this class with Node.
   static NAN_MODULE_INIT(Init);
   // Create a new V8 wrapper corresponding to a particular PHP object id.
@@ -35,6 +36,14 @@ class PhpObject : public Nan::ObjectWrap {
   ~PhpObject() override;
 
   static NAN_METHOD(New);
+  v8::Local<v8::Value> Property(
+      PropertyOp op, v8::Local<v8::String> property,
+      v8::Local<v8::Value> newValue = v8::Local<v8::Value>());
+  static NAN_PROPERTY_GETTER(PropertyGet);
+  static NAN_PROPERTY_SETTER(PropertySet);
+  static NAN_PROPERTY_ENUMERATOR(PropertyEnumerate);
+  static NAN_PROPERTY_DELETER(PropertyDelete);
+  static NAN_PROPERTY_QUERY(PropertyQuery);
 
   // Stash away the constructor's template for later use.
   static inline Nan::Persistent<v8::FunctionTemplate> & cons_template() {
@@ -46,6 +55,8 @@ class PhpObject : public Nan::ObjectWrap {
     v8::Local<v8::FunctionTemplate> t = Nan::New(cons_template());
     return scope.Escape(Nan::GetFunction(t).ToLocalChecked());
   }
+  // Messages (which should have access to PropertyOp)
+  class PhpPropertyMsg;
 
   // Members
   MapperChannel *channel_;

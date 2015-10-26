@@ -59,6 +59,10 @@ class Message {
   inline bool IsProcessed() { return processed_; }
   inline const Value &retval() { return retval_; }
   inline const Value &exception() { return exception_; }
+  // Override this if you want to explicitly allow the return value to
+  // be 'empty' -- this is used in JS getters to indicate lookup should
+  // continue up the prototype chain, for instance.
+  virtual bool IsEmptyRetvalOk() { return false; }
 
   // We don't know which of these is the "request" or "response" part
   // yet, but we'll name them by execution context, and we'll
@@ -105,8 +109,11 @@ class MessageToPhp : public Message {
     }
     if (retval_.IsEmpty() && exception_.IsEmpty()) {
       // If no result, throw an exception.
-      const char *msg = mapper_->IsValid() ? "no return value" : "shutdown";
-      exception_.SetString(msg, strlen(msg));
+      const char *msg = (!mapper_->IsValid()) ? "shutdown" :
+        (!IsEmptyRetvalOk()) ? "no return value" : NULL;
+      if (msg) {
+        exception_.SetString(msg, strlen(msg));
+      }
     }
     // Now send response back to JS side.
     // (Even for fire-and-forget messages, we want to execute the
@@ -236,9 +243,12 @@ class MessageToJs : public Message {
       }
     }
     if (retval_.IsEmpty() && exception_.IsEmpty()) {
-      // if no result, throw an exception
-      const char *msg = mapper_->IsValid() ? "no return value" : "shutdown";
-      exception_.Set(mapper_, Nan::TypeError(msg));
+      // If no result, throw an exception.
+      const char *msg = (!mapper_->IsValid()) ? "shutdown" :
+        (!IsEmptyRetvalOk()) ? "no return value" : NULL;
+      if (msg) {
+        exception_.Set(mapper_, Nan::TypeError(msg));
+      }
     }
     // Now send response back to PHP side.
     // (Even for fire-and-forget messages, we want to execute the
@@ -383,58 +393,6 @@ class MessageToJs : public Message {
   JsCallbackData *js_callback_data_;
   bool *local_flag_ptr_;
   PhpMessageChannel *stashedChannel_;
-};
-
-// This is an example of MessageToPhp; it should be moved to
-// node_php_phpobject.cc once that file gets fleshed out.
-class PhpGetPropertyMsg : public MessageToPhp {
- public:
-  PhpGetPropertyMsg(ObjectMapper *m, Nan::Callback *callback, bool is_sync,
-                    v8::Local<v8::Value> obj, v8::Local<v8::Value> name)
-      : MessageToPhp(m, callback, is_sync),
-        obj_(m, obj), name_(m, name) { }
-
- protected:
-  void InPhp(PhpObjectMapper *m TSRMLS_DC) override {
-    ZVal obj{ZEND_FILE_LINE_C}, name{ZEND_FILE_LINE_C};
-    zval *r;
-    zend_class_entry *ce;
-    zend_property_info *property_info;
-
-    obj_.ToPhp(m, obj TSRMLS_CC); name_.ToPhp(m, name TSRMLS_CC);
-    if (!(obj.IsObject() && name.IsString())) {
-      retval_.SetNull();
-      return;
-    }
-    ce = Z_OBJCE_P(*obj);
-    property_info = zend_get_property_info(ce, *name, 1 TSRMLS_CC);
-    if (property_info && property_info->flags & ZEND_ACC_PUBLIC) {
-      r = zend_read_property(NULL, *obj, Z_STRVAL_P(*name), Z_STRLEN_P(*name),
-                             true TSRMLS_CC);
-      // Special case uninitialized_zval_ptr and return an empty value
-      // (indicating that we don't intercept this property) if the
-      // property doesn't exist.
-      if (r == EG(uninitialized_zval_ptr)) {
-        // XXX This is going to trigger an exception.
-        retval_.SetEmpty();
-        return;
-      } else {
-        retval_.Set(m, r TSRMLS_CC);
-        /* We don't own the reference to php_value... unless the
-         * returned refcount was 0, in which case the below code
-         * will free it. */
-        zval_add_ref(&r);
-        zval_ptr_dtor(&r);
-        return;
-      }
-    }
-    // XXX Fallback to __get method
-    retval_.SetNull();
-  }
-
- private:
-  Value obj_;
-  Value name_;
 };
 
 }  // namespace node_php_embed
