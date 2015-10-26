@@ -10,6 +10,7 @@
 extern "C" {
 #include "sapi/embed/php_embed.h"
 #include "Zend/zend_exceptions.h"
+#include "Zend/zend_interfaces.h"
 #include "ext/standard/info.h"
 }
 
@@ -18,6 +19,7 @@ extern "C" {
 #include "src/messages.h"
 #include "src/node_php_jsbuffer_class.h"
 #include "src/node_php_jsobject_class.h"
+#include "src/node_php_jsserver_class.h"
 #include "src/node_php_jswait_class.h"
 #include "src/values.h"
 
@@ -48,16 +50,16 @@ ZEND_DECLARE_MODULE_GLOBALS(node_php_embed);
 class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
  public:
   PhpRequestWorker(Nan::Callback *callback, v8::Local<v8::String> source,
-                   v8::Local<v8::Object> stream, v8::Local<v8::Value> context)
-      : AsyncMessageWorker(callback), result_(), stream_(), context_() {
+                   v8::Local<v8::Object> stream, v8::Local<v8::Value> init_func)
+      : AsyncMessageWorker(callback), result_(), stream_(), init_func_() {
     JsStartupMapper mapper(this);
     source_.Set(&mapper, source);
     stream_.Set(&mapper, stream);
-    context_.Set(&mapper, context);
+    init_func_.Set(&mapper, init_func);
   }
   virtual ~PhpRequestWorker() { }
   const Value &GetStream() { return stream_; }
-  const Value &GetContext() { return context_; }
+  const Value &GetInitFunc() { return init_func_; }
 
   // Executed inside the PHP thread.  It is not safe to access V8 or
   // V8 data structures here, so everything we need for input and output
@@ -126,7 +128,7 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
   Value source_;
   Value result_;
   Value stream_;
-  Value context_;
+  Value init_func_;
 };
 
 /* PHP extension metadata */
@@ -171,6 +173,7 @@ static void node_php_embed_flush(void *server_context) {
   // Fetch the MapperChannel for this thread.
   PhpRequestWorker *worker = NODE_PHP_EMBED_G(worker);
   MapperChannel *channel = NODE_PHP_EMBED_G(channel);
+  if (!worker) { return; /* we're in module shutdown, no request any more */ }
   ZVal stream{ZEND_FILE_LINE_C}, retval{ZEND_FILE_LINE_C};
   worker->GetStream().ToPhp(channel, stream TSRMLS_CC);
   // Use plain zval to avoid allocating copy of method name.
@@ -203,14 +206,26 @@ static void node_php_embed_register_server_variables(
   php_import_environment_variables(track_vars_array TSRMLS_CC);
   // Set PHP_SELF to "The filename of the currently executing script,
   // relative to the document root."
-  // XXX
-  // Put PHP-wrapped version of node context object in $_SERVER['CONTEXT'].
-  ZVal context{ZEND_FILE_LINE_C};
-  worker->GetContext().ToPhp(channel, context TSRMLS_CC);
-  char contextName[] = { "CONTEXT" };
-  php_register_variable_ex(contextName, context.Transfer(TSRMLS_C),
-                           track_vars_array TSRMLS_CC);
-  // XXX Call a JS function passing in $_SERVER to allow init?
+  ZVal init_func{ZEND_FILE_LINE_C};
+  ZVal server{ZEND_FILE_LINE_C};
+  ZVal wait{ZEND_FILE_LINE_C};
+  worker->GetInitFunc().ToPhp(channel, init_func TSRMLS_CC);
+  assert(init_func.Type() == IS_OBJECT);
+  // Create a wrapper that will allow the JS function to set $_SERVER.
+  node_php_embed::node_php_jsserver_create(server.Ptr(), track_vars_array
+                                           TSRMLS_CC);
+  // Allow the JS function to be asynchronous.
+  node_php_embed::node_php_jswait_create(wait.Ptr() TSRMLS_CC);
+  // Now invoke the JS function, passing in the wrapper
+  zval *r = NULL;
+  zend_call_method_with_2_params(init_func.PtrPtr(),
+                                 Z_OBJCE_P(init_func.Ptr()), NULL, "__invoke",
+                                 &r, server.Ptr(), wait.Ptr());
+  if (EG(exception)) {
+    NPE_ERROR("Exception in server init function");
+    zend_clear_exception(TSRMLS_C);
+  }
+  if (r) { zval_ptr_dtor(&r); }
   TRACE("<");
 }
 
@@ -218,9 +233,9 @@ NAN_METHOD(setIniPath) {
   TRACE(">");
   REQUIRE_ARGUMENT_STRING(0, iniPath);
   if (php_embed_module.php_ini_path_override) {
-    delete[] php_embed_module.php_ini_path_override;
+    free(php_embed_module.php_ini_path_override);
   }
-  php_embed_module.php_ini_path_override = strdup(*iniPath);
+  php_embed_module.php_ini_path_override = (*iniPath) ? strdup(*iniPath) : NULL;
   TRACE("<");
 }
 
@@ -231,17 +246,20 @@ NAN_METHOD(request) {
   if (!info[1]->IsObject()) {
     return Nan::ThrowTypeError("stream expected");
   }
-  v8::Local<v8::String> source = info[0].As<v8::String>();
-  v8::Local<v8::Object> stream = info[1].As<v8::Object>();
-  v8::Local<v8::Value> context = info[2];
+  if (!info[2]->IsFunction()) {
+    return Nan::ThrowTypeError("init function expected");
+  }
   if (!info[3]->IsFunction()) {
     return Nan::ThrowTypeError("callback expected");
   }
+  v8::Local<v8::String> source = info[0].As<v8::String>();
+  v8::Local<v8::Object> stream = info[1].As<v8::Object>();
+  v8::Local<v8::Value> init_func = info[2];
   Nan::Callback *callback = new Nan::Callback(info[3].As<v8::Function>());
 
   node_php_embed_ensure_init();
   Nan::AsyncQueueWorker(new PhpRequestWorker(callback, source, stream,
-                                             context));
+                                             init_func));
   TRACE("<");
 }
 
@@ -268,6 +286,7 @@ PHP_MINIT_FUNCTION(node_php_embed) {
   TRACE("> PHP_MINIT_FUNCTION");
   PHP_MINIT(node_php_jsbuffer_class)(INIT_FUNC_ARGS_PASSTHRU);
   PHP_MINIT(node_php_jsobject_class)(INIT_FUNC_ARGS_PASSTHRU);
+  PHP_MINIT(node_php_jsserver_class)(INIT_FUNC_ARGS_PASSTHRU);
   PHP_MINIT(node_php_jswait_class)(INIT_FUNC_ARGS_PASSTHRU);
   TRACE("< PHP_MINIT_FUNCTION");
   return SUCCESS;
@@ -343,7 +362,7 @@ void ModuleShutdown(void *arg) {
   php_request_startup(TSRMLS_C);
   php_embed_shutdown(TSRMLS_C);
   if (php_embed_module.php_ini_path_override) {
-    delete[] php_embed_module.php_ini_path_override;
+    free(php_embed_module.php_ini_path_override);
   }
   TRACE("<");
 }

@@ -31,6 +31,7 @@
         'src/node_php_embed.cc',
         'src/node_php_jsbuffer_class.cc',
         'src/node_php_jsobject_class.cc',
+        'src/node_php_jsserver_class.cc',
         'src/node_php_jswait_class.cc',
         'src/node_php_phpobject_class.cc',
       ],

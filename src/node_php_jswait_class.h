@@ -15,8 +15,6 @@ extern "C" {
 
 namespace node_php_embed {
 
-class MessageToJs;
-
 struct node_php_jswait {
   zend_object std;
   // No special properties.
