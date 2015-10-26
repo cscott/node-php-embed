@@ -66,7 +66,9 @@ class Message {
   // send responses to the other side (if they happen to be the
   // request context).
   virtual void ExecutePhp(JsMessageChannel *channel TSRMLS_DC) = 0;
-  virtual void ExecuteJs(PhpMessageChannel *channel) = 0;
+  // Pass true to no_async if returning a value via a Node callback will
+  // deadlock the process.
+  virtual void ExecuteJs(PhpMessageChannel *channel, bool no_async) = 0;
 
  protected:
   ObjectMapper *mapper_;
@@ -95,14 +97,11 @@ class MessageToPhp : public Message {
   // side and sending its result back to JS.
   void ExecutePhp(JsMessageChannel *channel TSRMLS_DC) override {
     if (mapper_->IsValid()) {
-      zend_try {
-        InPhp(mapper_ TSRMLS_CC);
-      } zend_catch {
-        if (EG(exception)) {
-          exception_.Set(mapper_, EG(exception) TSRMLS_CC);
-          zend_clear_exception(TSRMLS_C);
-        }
-      } zend_end_try();
+      InPhp(mapper_ TSRMLS_CC);
+      if (EG(exception)) {
+        exception_.Set(mapper_, EG(exception) TSRMLS_CC);
+        zend_clear_exception(TSRMLS_C);
+      }
     }
     if (retval_.IsEmpty() && exception_.IsEmpty()) {
       // If no result, throw an exception.
@@ -118,7 +117,7 @@ class MessageToPhp : public Message {
   }
   // This is the "response" portion of the message, executed on the JS
   // side to dispatch results and/or cleanup.
-  void ExecuteJs(PhpMessageChannel *channel) override {
+  void ExecuteJs(PhpMessageChannel *channel, bool no_async) override {
     processed_ = true;
     if (is_sync_) {
       return;  // Caller will handle return value & exceptions.
@@ -189,7 +188,7 @@ class MessageToJs : public Message {
   // This is the "request" portion of the message, executed on the
   // JS side and sending its result back to PHP.
   // A HandleScope will have already been set up for us.
-  void ExecuteJs(PhpMessageChannel *channel) override {
+  void ExecuteJs(PhpMessageChannel *channel, bool no_async) override {
     // Keep a pointer to local stack space so that recursive invocations
     // can signal us without touching the message object. (See below.)
     bool local_flag = false, *local_flag_ptr =
@@ -224,8 +223,16 @@ class MessageToJs : public Message {
       // If we made an async callback and didn't throw a sync exception,
       // we're done now; we'll do the rest of this function from the callback.
       if (js_callback_data_ && exception_.IsEmpty()) {
-        TRACE("< made callback");
-        return;
+        // If we made an async callback but we're in a sync-only context,
+        // throw an exception to break the deadlock
+        if (no_async) {
+          TRACE("- made callback but throwing deadlock exception");
+          retval_.SetEmpty();
+          exception_.Set(mapper_, Nan::TypeError("deadlock"));
+        } else {
+          TRACE("< made callback");
+          return;
+        }
       }
     }
     if (retval_.IsEmpty() && exception_.IsEmpty()) {
@@ -367,7 +374,7 @@ class MessageToJs : public Message {
           msg->exception_.Set(msg->mapper_, exception);
       }
       assert(msg->js_callback_data_);
-      msg->ExecuteJs(msg->stashedChannel_);
+      msg->ExecuteJs(msg->stashedChannel_, false);
       TRACE("<");
   }
 

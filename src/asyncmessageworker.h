@@ -273,14 +273,15 @@ class AsyncMapperChannel : public MapperChannel {
 
   void ProcessJs(Message *match, bool kickNextTick) {
     MapperChannel *channel = &channel_;
+    bool js_is_sync = js_is_sync_;
     // Start a handle scope.
     Nan::HandleScope handle_scope;
     // Enter appropriate context
     v8::Context::Scope scope(kick_next_tick_.GetFunction()->CreationContext());
-    js_queue_.DoProcess(match, [channel](Message *mm) {
+    js_queue_.DoProcess(match, [channel, js_is_sync](Message *mm) {
       // Each message will get its own handle scope.
       Nan::HandleScope scope;
-      mm->ExecuteJs(channel);
+      mm->ExecuteJs(channel, js_is_sync);
     });
     // Kick the tick.  See:
     // https://github.com/nodejs/nan/issues/284#issuecomment-150887627

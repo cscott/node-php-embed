@@ -183,6 +183,10 @@ static void node_php_embed_flush(void *server_context) {
   zval *args[] = { &buffer, &wait };
   call_user_function(EG(function_table), stream.PtrPtr(), &method,
                      retval.Ptr(), 2, args TSRMLS_CC);
+  if (EG(exception)) {
+      TRACE("- exception caught (ignoring)");
+      zend_clear_exception(TSRMLS_C);
+  }
   zval_dtor(&buffer);
   zval_dtor(&wait);
   TRACE("<");
