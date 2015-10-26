@@ -105,6 +105,9 @@ class ZVal {
   inline bool IsArray() { return Type() == IS_ARRAY; }
   inline bool IsObject() { return Type() == IS_OBJECT; }
   inline bool IsResource() { return Type() == IS_RESOURCE; }
+  inline bool IsUninitialized(TSRMLS_D) {
+    return zvalp == EG(uninitialized_zval_ptr);
+  }
   inline void Set(zval *z ZEND_FILE_LINE_DC) {
     zval_ptr_dtor(&zvalp);
     zvalp = z;
@@ -115,15 +118,31 @@ class ZVal {
       INIT_ZVAL(*zvalp);
     }
   }
-  inline void SetNull() { ZVAL_NULL(zvalp); }
-  inline void SetBool(bool b) { ZVAL_BOOL(zvalp, b ? 1 : 0); }
-  inline void SetLong(long l) { ZVAL_LONG(zvalp, l); }  // NOLINT(runtime/int)
-  inline void SetDouble(double d) { ZVAL_DOUBLE(zvalp, d); }
+  inline void SetNull() { PerhapsDestroy(); ZVAL_NULL(zvalp); }
+  inline void SetBool(bool b) { PerhapsDestroy(); ZVAL_BOOL(zvalp, b ? 1 : 0); }
+  inline void SetLong(long l) {  // NOLINT(runtime/int)
+    PerhapsDestroy();
+    ZVAL_LONG(zvalp, l);
+  }
+  inline void SetDouble(double d) { PerhapsDestroy(); ZVAL_DOUBLE(zvalp, d); }
   inline void SetString(const char *str, int len, bool dup) {
+    PerhapsDestroy();
     ZVAL_STRINGL(zvalp, str, len, dup);
+  }
+  inline void SetStringConstant(const char *str) {
+    PerhapsDestroy();
+    ZVAL_STRINGL(zvalp, str, strlen(str), 0);
+    transferred_ = true;
   }
 
  private:
+  void PerhapsDestroy() {
+    if (!transferred_) {
+      zval_dtor(zvalp);
+    }
+    transferred_ = false;
+  }
+
   zval *zvalp;
   bool transferred_;
   NAN_DISALLOW_ASSIGN_COPY_MOVE(ZVal)
@@ -245,6 +264,9 @@ class Value {
     }
     void ToPhp(PhpObjectMapper *m, zval *return_value,
                        zval **return_value_ptr TSRMLS_DC) const override {
+      // If we ever wanted to set `dup=0`, we'd need to ensure that the
+      // data was null-terminated, since Buffers aren't, necessarily,
+      // and PHP expects null-terminated strings.
       RETURN_STRINGL(data_, length_, 1);
     }
     std::string ToString() const override {
@@ -275,7 +297,7 @@ class Value {
    public:
     explicit OStr(const char *data, std::size_t length)
         : Str(NULL, length) {
-      char *ndata = new char[length+1];
+      char *ndata = new char[length + 1];
       memcpy(ndata, data, length);
       ndata[length] = 0;
       data_ = ndata;
@@ -414,6 +436,9 @@ class Value {
     // Null for all other object types.
     SetNull();
   }
+  inline void Set(PhpObjectMapper *m, ZVal *z TSRMLS_DC) {
+    Set(m, z->Ptr() TSRMLS_CC);
+  }
   void Set(PhpObjectMapper *m, zval *v TSRMLS_DC) {
     switch (Z_TYPE_P(v)) {
     default:
@@ -530,6 +555,11 @@ class Value {
     new (&wait_) Wait();
   }
 
+  // Helper.
+  void SetConstantString(const char *str) {
+      SetString(str, strlen(str) + 1);
+  }
+
   v8::Local<v8::Value> ToJs(JsObjectMapper *m) const {
     return AsBase().ToJs(m);
   }
@@ -573,7 +603,11 @@ class Value {
   }
   /* For debugging: describe the value. Caller implicitly deallocates. */
   std::string ToString() const {
-    return AsBase().ToString();
+    if (IsEmpty()) {
+      return std::string("Empty");
+    } else {
+      return AsBase().ToString();
+    }
   }
 
  private:
