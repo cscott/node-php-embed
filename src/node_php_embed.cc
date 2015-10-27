@@ -203,9 +203,7 @@ static void node_php_embed_register_server_variables(
   PhpRequestWorker *worker = NODE_PHP_EMBED_G(worker);
   MapperChannel *channel = NODE_PHP_EMBED_G(channel);
 
-  php_import_environment_variables(track_vars_array TSRMLS_CC);
-  // Set PHP_SELF to "The filename of the currently executing script,
-  // relative to the document root."
+  // Invoke the init_func in order to set up the $_SERVER variables.
   ZVal init_func{ZEND_FILE_LINE_C};
   ZVal server{ZEND_FILE_LINE_C};
   ZVal wait{ZEND_FILE_LINE_C};
