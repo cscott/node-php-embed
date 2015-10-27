@@ -51,14 +51,28 @@ ZEND_DECLARE_MODULE_GLOBALS(node_php_embed);
 class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
  public:
   PhpRequestWorker(Nan::Callback *callback, v8::Local<v8::String> source,
-                   v8::Local<v8::Object> stream, v8::Local<v8::Value> init_func)
-      : AsyncMessageWorker(callback), result_(), stream_(), init_func_() {
+                   v8::Local<v8::Object> stream, v8::Local<v8::Array> args,
+                   v8::Local<v8::Value> init_func)
+      : AsyncMessageWorker(callback), result_(), stream_(), init_func_(),
+        argc_(args->Length()), argv_(new char*[args->Length()]) {
     JsStartupMapper mapper(this);
     source_.Set(&mapper, source);
     stream_.Set(&mapper, stream);
     init_func_.Set(&mapper, init_func);
+    // Turn the JS array into a char** suitable for PHP.
+    for (uint32_t i = 0; i < argc_; i++) {
+      Nan::Utf8String s(
+        Nan::Get(args, i)
+        .FromMaybe(static_cast< v8::Local<v8::Value> >(Nan::EmptyString())));
+      argv_[i] = strdup(*s ? *s : "");
+    }
   }
-  virtual ~PhpRequestWorker() { }
+  virtual ~PhpRequestWorker() {
+    for (uint32_t i = 0; i < argc_; i++) {
+      free(argv_[i]);
+    }
+    delete[] argv_;
+  }
   const Value &GetStream() { return stream_; }
   const Value &GetInitFunc() { return init_func_; }
 
@@ -67,6 +81,8 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
   // should go on `this`.
   void Execute(MapperChannel *channel TSRMLS_DC) override {
     TRACE("> PhpRequestWorker");
+    SG(request_info).argc = argc_;
+    SG(request_info).argv = argv_;
     if (php_request_startup(TSRMLS_C) == FAILURE) {
       Nan::ThrowError("can't create request");
       return;
@@ -117,6 +133,8 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
     NODE_PHP_EMBED_G(channel) = nullptr;
     TRACE("- request shutdown");
     php_request_shutdown(nullptr);
+    SG(request_info).argc = 0;
+    SG(request_info).argv = nullptr;
     TRACE("< PhpRequestWorker");
   }
   // Executed when the async work is complete.
@@ -138,6 +156,8 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
   Value result_;
   Value stream_;
   Value init_func_;
+  uint32_t argc_;
+  char **argv_;
 };
 
 /* PHP extension metadata */
@@ -291,20 +311,24 @@ NAN_METHOD(request) {
   if (!info[1]->IsObject()) {
     return Nan::ThrowTypeError("stream expected");
   }
-  if (!info[2]->IsFunction()) {
-    return Nan::ThrowTypeError("init function expected");
+  if (!info[2]->IsArray()) {
+    return Nan::ThrowTypeError("argument array expected");
   }
   if (!info[3]->IsFunction()) {
+    return Nan::ThrowTypeError("init function expected");
+  }
+  if (!info[4]->IsFunction()) {
     return Nan::ThrowTypeError("callback expected");
   }
   v8::Local<v8::String> source = info[0].As<v8::String>();
   v8::Local<v8::Object> stream = info[1].As<v8::Object>();
-  v8::Local<v8::Value> init_func = info[2];
-  Nan::Callback *callback = new Nan::Callback(info[3].As<v8::Function>());
+  v8::Local<v8::Array> args = info[2].As<v8::Array>();
+  v8::Local<v8::Value> init_func = info[3];
+  Nan::Callback *callback = new Nan::Callback(info[4].As<v8::Function>());
 
   node_php_embed_ensure_init();
   Nan::AsyncQueueWorker(new PhpRequestWorker(callback, source, stream,
-                                             init_func));
+                                             args, init_func));
   TRACE("<");
 }
 
@@ -367,9 +391,7 @@ static void node_php_embed_ensure_init(void) {
   }
   TRACE(">");
   node_php_embed_inited = true;
-  char *argv[] = { nullptr };
-  int argc = 0;
-  php_embed_init(argc, argv PTSRMLS_CC);
+  php_embed_init(0, nullptr PTSRMLS_CC);
   // Shutdown the initially-created request; we'll create our own request
   // objects inside PhpRequestWorker.
   php_request_shutdown(nullptr);
