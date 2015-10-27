@@ -122,7 +122,7 @@ class AsyncMapperChannel : public MapperChannel {
     // PHP-side shutdown is complete by the time the destructor is called.
     // Tear down JS-side queue.  (Completion is async, but that's okay.)
     uv_async_t *async = js_queue_.async();
-    async->data = NULL;  // can't touch asyncmessageworker after we return.
+    async->data = nullptr;  // can't touch asyncmessageworker after we return.
     uv_close(reinterpret_cast<uv_handle_t*>(async), AsyncClose_);
     TRACE("<");
   }
@@ -162,7 +162,7 @@ class AsyncMapperChannel : public MapperChannel {
   };
 
   virtual void HandleOKCallback(JsObjectMapper *m) {
-    callback->Call(0, NULL);
+    callback->Call(0, nullptr);
   }
 
  private:
@@ -174,13 +174,13 @@ class AsyncMapperChannel : public MapperChannel {
   class JsCleanupSyncMsg : MessageToJs {
     friend class AsyncMessageWorker;
     explicit JsCleanupSyncMsg(AsyncMessageWorker *that)
-        : MessageToJs(&(that->channel_), NULL, true), that_(that) { }
+        : MessageToJs(&(that->channel_), nullptr, true), that_(that) { }
     void InJs(JsObjectMapper *m) override {
       TRACE("> JsCleanupSyncMsg");
       // All previous PHP requests should have been serviced by now.
       objid_t last = that_->channel_.ClearAllJsIds();
       // Empty the JS side queue.
-      that_->ProcessJs(NULL, false /* we're inside a ProcessJs already */);
+      that_->ProcessJs(nullptr, false /* we're inside a ProcessJs already */);
       // Ok, return to tell PHP the queues are empty.
       retval_.SetInt(last);
       TRACE("< JsCleanupSyncMsg");
@@ -226,8 +226,8 @@ class AsyncMapperChannel : public MapperChannel {
       last = msg.GetLastId(&channel_ TSRMLS_CC);
       // Exit this scope to dealloc msg before proceeding.
     }
-    ProcessPhp(NULL TSRMLS_CC);  // A precaution; shouldn't be necessary.
-    a->data = NULL;
+    ProcessPhp(nullptr TSRMLS_CC);  // A precaution; shouldn't be necessary.
+    a->data = nullptr;
     js_queue_.Shutdown();
     /* OK, queues are empty now, we can start tearing things down. */
     for (objid_t id = 1; id < last; id++) {
@@ -292,14 +292,14 @@ class AsyncMapperChannel : public MapperChannel {
     // Kick the tick.  See:
     // https://github.com/nodejs/nan/issues/284#issuecomment-150887627
     if (kickNextTick) {
-      kick_next_tick_.Call(0, NULL);
+      kick_next_tick_.Call(0, nullptr);
     }
   }
 
   NAN_INLINE static NAUV_WORK_CB(JsAsyncMessage_) {
     AsyncMessageWorker *worker = static_cast<AsyncMessageWorker*>(async->data);
     if (worker) {
-      worker->ProcessJs(NULL, true /* from uv loop, kick next tick */);
+      worker->ProcessJs(nullptr, true /* from uv loop, kick next tick */);
     } else {
       NPE_ERROR("! JsAsyncMessage after shutdown");  // Shouldn't happen.
     }
@@ -333,7 +333,7 @@ class AsyncMapperChannel : public MapperChannel {
     AsyncMessageWorker *worker = static_cast<AsyncMessageWorker*>(async->data);
     if (worker) {
       TSRMLS_FETCH();
-      worker->ProcessPhp(NULL TSRMLS_CC);
+      worker->ProcessPhp(nullptr TSRMLS_CC);
     } else {
       NPE_ERROR("! PhpAsyncMessage after shutdown");  // Shouldn't happen.
     }
@@ -392,7 +392,7 @@ v8::Local<v8::Object> amw::AsyncMapperChannel::JsObjForId(objid_t id) {
   }
   if (!IsValid()) {
     // This happens when we return an object at the tail of the request.
-    return scope.Escape(PhpObject::Create(NULL, 0));
+    return scope.Escape(PhpObject::Create(nullptr, 0));
   }
   // Make a wrapper!
   v8::Local<v8::NativeWeakMap> jsObjToId = Nan::New(js_obj_to_id_);
@@ -466,10 +466,10 @@ zval *amw::AsyncMapperChannel::PhpObjForId(objid_t id TSRMLS_DC) {
 
 // Free PHP references associated with an id.
 void amw::AsyncMapperChannel::ClearPhpId(objid_t id TSRMLS_DC) {
-  zval *z = (id < php_obj_list_.size()) ? php_obj_list_[id] : NULL;
+  zval *z = (id < php_obj_list_.size()) ? php_obj_list_[id] : nullptr;
   if (z) {
     node_php_jsobject_maybe_neuter(z TSRMLS_CC);
-    php_obj_list_[id] = NULL;
+    php_obj_list_[id] = nullptr;
     php_obj_to_id_.erase(Z_OBJ_HANDLE_P(z));
     zval_ptr_dtor(&z);
   }

@@ -33,7 +33,7 @@ class MessageQueue {
     _Push(m);
   }
   void Notify() {
-    _Push(NULL);
+    _Push(nullptr);
   }
   // Processes all messages on the queue.
   // Returns true if at least one message was processed.
@@ -50,7 +50,7 @@ class MessageQueue {
       // a recursive processing loop.
       uv_mutex_lock(&lock_);
       if (data_.empty()) {
-        m = NULL;
+        m = nullptr;
         if (match) {
           // We're blocking for a particular message, and there's nothing here.
           // Block to wait for some data.

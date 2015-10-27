@@ -86,7 +86,7 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
           // Can't call zend_clear_exception because there isn't a current
           // execution stack (ie, `EG(current_execute_data)`)
           zval *e = EG(exception);
-          EG(exception) = NULL;
+          EG(exception) = nullptr;
           convert_to_string(e);
           SetErrorMessage(Z_STRVAL_P(e));
           zval_ptr_dtor(&e);
@@ -113,10 +113,10 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
   }
   void AfterExecute(TSRMLS_D) override {
     TRACE("> PhpRequestWorker");
-    NODE_PHP_EMBED_G(worker) = NULL;
-    NODE_PHP_EMBED_G(channel) = NULL;
+    NODE_PHP_EMBED_G(worker) = nullptr;
+    NODE_PHP_EMBED_G(channel) = nullptr;
     TRACE("- request shutdown");
-    php_request_shutdown(NULL);
+    php_request_shutdown(nullptr);
     TRACE("< PhpRequestWorker");
   }
   // Executed when the async work is complete.
@@ -261,10 +261,10 @@ static void node_php_embed_register_server_variables(
   // Allow the JS function to be asynchronous.
   node_php_embed::node_php_jswait_create(wait.Ptr() TSRMLS_CC);
   // Now invoke the JS function, passing in the wrapper
-  zval *r = NULL;
+  zval *r = nullptr;
   zend_call_method_with_2_params(init_func.PtrPtr(),
-                                 Z_OBJCE_P(init_func.Ptr()), NULL, "__invoke",
-                                 &r, server.Ptr(), wait.Ptr());
+                                 Z_OBJCE_P(init_func.Ptr()), nullptr,
+                                 "__invoke", &r, server.Ptr(), wait.Ptr());
   if (EG(exception)) {
     NPE_ERROR("Exception in server init function");
     zend_clear_exception(TSRMLS_C);
@@ -279,7 +279,8 @@ NAN_METHOD(setIniPath) {
   if (php_embed_module.php_ini_path_override) {
     free(php_embed_module.php_ini_path_override);
   }
-  php_embed_module.php_ini_path_override = (*iniPath) ? strdup(*iniPath) : NULL;
+  php_embed_module.php_ini_path_override =
+    (*iniPath) ? strdup(*iniPath) : nullptr;
   TRACE("<");
 }
 
@@ -318,8 +319,8 @@ PHP_MINFO_FUNCTION(node_php_embed) {
 
 static void node_php_embed_globals_ctor(
     zend_node_php_embed_globals *node_php_embed_globals TSRMLS_DC) {
-  node_php_embed_globals->worker = NULL;
-  node_php_embed_globals->channel = NULL;
+  node_php_embed_globals->worker = nullptr;
+  node_php_embed_globals->channel = nullptr;
 }
 static void node_php_embed_globals_dtor(
     zend_node_php_embed_globals *node_php_embed_globals TSRMLS_DC) {
@@ -339,17 +340,17 @@ PHP_MINIT_FUNCTION(node_php_embed) {
 zend_module_entry node_php_embed_module_entry = {
   STANDARD_MODULE_HEADER,
   "node-php-embed", /* extension name */
-  NULL, /* function entries */
+  nullptr, /* function entries */
   PHP_MINIT(node_php_embed), /* MINIT */
-  NULL, /* MSHUTDOWN */
-  NULL, /* RINIT */
-  NULL, /* RSHUTDOWN */
+  nullptr, /* MSHUTDOWN */
+  nullptr, /* RINIT */
+  nullptr, /* RSHUTDOWN */
   PHP_MINFO(node_php_embed), /* MINFO */
   NODE_PHP_EMBED_VERSION,
   ZEND_MODULE_GLOBALS(node_php_embed),
   (void(*)(void* TSRMLS_DC))node_php_embed_globals_ctor,
   (void(*)(void* TSRMLS_DC))node_php_embed_globals_dtor,
-  NULL, /* post deactivate func */
+  nullptr, /* post deactivate func */
   STANDARD_MODULE_PROPERTIES_EX
 };
 
@@ -366,22 +367,22 @@ static void node_php_embed_ensure_init(void) {
   }
   TRACE(">");
   node_php_embed_inited = true;
-  char *argv[] = { NULL };
+  char *argv[] = { nullptr };
   int argc = 0;
   php_embed_init(argc, argv PTSRMLS_CC);
   // Shutdown the initially-created request; we'll create our own request
   // objects inside PhpRequestWorker.
-  php_request_shutdown(NULL);
-  node::AtExit(ModuleShutdown, NULL);
+  php_request_shutdown(nullptr);
+  node::AtExit(ModuleShutdown, nullptr);
   TRACE("<");
 }
 
 NAN_MODULE_INIT(ModuleInit) {
   TRACE(">");
-  php_embed_module.php_ini_path_override = NULL;
+  php_embed_module.php_ini_path_override = nullptr;
   php_embed_module.php_ini_ignore = true;
   php_embed_module.php_ini_ignore_cwd = true;
-  php_embed_module.ini_defaults = NULL;
+  php_embed_module.ini_defaults = nullptr;
   php_embed_module.startup = node_php_embed_startup;
   php_embed_module.send_header = node_php_embed_send_header;
   php_embed_module.ub_write = node_php_embed_ub_write;

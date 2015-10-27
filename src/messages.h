@@ -84,7 +84,7 @@ class Message {
 // in PHP and the response is handled in JavaScript.
 class MessageToPhp : public Message {
  public:
-  // Constructed in JS thread.  The callback may be NULL for
+  // Constructed in JS thread.  The callback may be nullptr for
   // fire-and-forget methods.  If provided, it will be invoked
   // nodejs-style, with exception as first arg and retval as second.
   // The callback will be owned by the message, and deleted after use.
@@ -110,7 +110,7 @@ class MessageToPhp : public Message {
     if (retval_.IsEmpty() && exception_.IsEmpty()) {
       // If no result, throw an exception.
       const char *msg = (!mapper_->IsValid()) ? "shutdown" :
-        (!IsEmptyRetvalOk()) ? "no return value" : NULL;
+        (!IsEmptyRetvalOk()) ? "no return value" : nullptr;
       if (msg) {
         exception_.SetString(msg, strlen(msg));
       }
@@ -178,7 +178,7 @@ class MessageToPhp : public Message {
 // in JS and the response is handled in PHP.
 class MessageToJs : public Message {
  public:
-  // Constructed in PHP thread. The php_callback may be NULL for
+  // Constructed in PHP thread. The php_callback may be nullptr for
   // fire-and-forget methods.  If provided, it will be invoked
   // as a closure, with the exception as the first arg and the
   // return value as the second.  The MessageToJs will ref the
@@ -186,8 +186,8 @@ class MessageToJs : public Message {
   // should be null and is_sync should be true.
   MessageToJs(ObjectMapper *m, zval *php_callback, bool is_sync)
       : Message(m), php_callback_(php_callback ZEND_FILE_LINE_CC),
-    is_sync_(is_sync), js_callback_data_(NULL), local_flag_ptr_(NULL),
-        stashedChannel_(NULL) {
+    is_sync_(is_sync), js_callback_data_(nullptr), local_flag_ptr_(nullptr),
+        stashedChannel_(nullptr) {
     assert(is_sync ? php_callback_.IsNull() : true);
   }
   virtual ~MessageToJs() {}
@@ -221,7 +221,7 @@ class MessageToJs : public Message {
       }
       // We're out of danger now; reset local_flag_ptr_ so that any async
       // exeuctions of ExecuteJs don't use our stack pointer after it's popped.
-      local_flag_ptr_ = NULL;
+      local_flag_ptr_ = nullptr;
       // If an exception was thrown, set exception_
       if (tryCatch.HasCaught()) {
         exception_.Set(mapper_, tryCatch.Exception());
@@ -245,7 +245,7 @@ class MessageToJs : public Message {
     if (retval_.IsEmpty() && exception_.IsEmpty()) {
       // If no result, throw an exception.
       const char *msg = (!mapper_->IsValid()) ? "shutdown" :
-        (!IsEmptyRetvalOk()) ? "no return value" : NULL;
+        (!IsEmptyRetvalOk()) ? "no return value" : nullptr;
       if (msg) {
         exception_.Set(mapper_, Nan::TypeError(msg));
       }

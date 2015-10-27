@@ -124,7 +124,7 @@ static NAN_INLINE v8::Local<v8::String> CAST_STRING(
 #if ZEND_MODULE_API_NO >= 20100409
 # define ZEND_HASH_KEY_DC , const zend_literal *key
 # define ZEND_HASH_KEY_CC , key
-# define ZEND_HASH_KEY_NULL , NULL
+# define ZEND_HASH_KEY_NULL , nullptr
 #else
 # define ZEND_HASH_KEY_DC
 # define ZEND_HASH_KEY_CC

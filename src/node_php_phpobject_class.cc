@@ -55,7 +55,7 @@ void PhpObject::MaybeNeuter(MapperChannel *channel, v8::Local<v8::Object> obj) {
     // Already neutered, or else not from this request.
     return;
   }
-  p->channel_ = NULL;
+  p->channel_ = nullptr;
   p->id_ = 0;
 }
 
@@ -170,7 +170,7 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
     const char *method_name;
     uint method_name_len;
     zend_class_entry *scope, *ce;
-    zend_function *method_ptr = NULL;
+    zend_function *method_ptr = nullptr;
     zval *php_value;
     ce = scope = Z_OBJCE_P(*obj);
 
@@ -250,7 +250,7 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
           zend_get_property_info(ce, *zname, 1 TSRMLS_CC);
 
         if (property_info && property_info->flags & ZEND_ACC_PUBLIC) {
-          php_value = zend_read_property(NULL, obj.Ptr(), cname, cname_len,
+          php_value = zend_read_property(nullptr, obj.Ptr(), cname, cname_len,
                                          true TSRMLS_CC);
           // Special case uninitialized_zval_ptr and return an empty value
           // (indicating that we don't intercept this property) if the
@@ -271,7 +271,7 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
                    /* Allow only public methods */
                    && ((method_ptr->common.fn_flags & ZEND_ACC_PUBLIC) != 0)) {
           /* Okay, let's call __get. */
-          zend_call_method_with_1_params(obj.PtrPtr(), ce, NULL, "__get",
+          zend_call_method_with_1_params(obj.PtrPtr(), ce, nullptr, "__get",
                                          &php_value, zname.Ptr());
           retval_.Set(m, php_value TSRMLS_CC);
           zval_ptr_dtor(&php_value);
@@ -294,7 +294,7 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
             && ((method_ptr->common.fn_flags & ZEND_ACC_PUBLIC) != 0)) {
           /* Okay, let's call __set. */
           zend_call_method_with_2_params
-            (obj.PtrPtr(), ce, NULL, "__set",
+            (obj.PtrPtr(), ce, nullptr, "__set",
              &php_value, zname.Ptr(), value.Ptr());
           retval_.Set(m, value.Ptr() TSRMLS_CC);
           zval_ptr_dtor(&php_value);
@@ -332,7 +332,7 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
             /* Allow only public methods */
             && ((method_ptr->common.fn_flags & ZEND_ACC_PUBLIC) != 0)) {
           /* Okay, let's call __unset. */
-          zend_call_method_with_1_params(obj.PtrPtr(), ce, NULL, "__unset",
+          zend_call_method_with_1_params(obj.PtrPtr(), ce, nullptr, "__unset",
                                          &php_value, zname.Ptr());
           retval_.SetBool(true);
           zval_ptr_dtor(&php_value);
@@ -382,7 +382,7 @@ v8::Local<v8::Value> PhpObject::Property(PropertyOp op,
   }
   // XXX For async property access, might make a PromiseResolver
   // and use that to create a callback.
-  PhpPropertyMsg msg(channel_, NULL, true,  // Sync call.
+  PhpPropertyMsg msg(channel_, nullptr, true,  // Sync call.
                      op, id_, property, newValue);
   channel_->SendToPhp(&msg, MessageFlags::SYNC);
   THROW_IF_EXCEPTION("PHP exception thrown during property access",

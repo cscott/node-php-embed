@@ -45,9 +45,9 @@ static zend_object_value node_php_jswait_new(zend_class_entry *ce TSRMLS_DC) {
   zend_object_std_init(&c->std, ce TSRMLS_CC);
 
   retval.handle = zend_objects_store_put(
-      c, NULL,
+      c, nullptr,
       (zend_objects_free_object_storage_t) node_php_jswait_free_storage,
-      NULL TSRMLS_CC);
+      nullptr TSRMLS_CC);
   retval.handlers = &node_php_jswait_handlers;
 
   TRACE("<");
@@ -116,9 +116,9 @@ STUB_METHOD(__wakeup)
 static const zend_function_entry node_php_jswait_methods[] = {
   PHP_ME(JsWait, __construct, node_php_jswait_construct_args,
          ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
-  PHP_ME(JsWait, __sleep,     NULL,
+  PHP_ME(JsWait, __sleep,     nullptr,
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
-  PHP_ME(JsWait, __wakeup,    NULL,
+  PHP_ME(JsWait, __wakeup,    nullptr,
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
   ZEND_FE_END
 };
@@ -135,9 +135,9 @@ PHP_MINIT_FUNCTION(node_php_jswait_class) {
   /* JsWait handlers */
   memcpy(&node_php_jswait_handlers, zend_get_std_object_handlers(),
          sizeof(zend_object_handlers));
-  node_php_jswait_handlers.clone_obj = NULL;
-  node_php_jswait_handlers.cast_object = NULL;
-  node_php_jswait_handlers.get_property_ptr_ptr = NULL;
+  node_php_jswait_handlers.clone_obj = nullptr;
+  node_php_jswait_handlers.cast_object = nullptr;
+  node_php_jswait_handlers.get_property_ptr_ptr = nullptr;
 
   TRACE("< PHP_MINIT_FUNCTION");
   return SUCCESS;

@@ -45,9 +45,9 @@ static zend_object_value node_php_jsserver_new(zend_class_entry *ce TSRMLS_DC) {
   zend_object_std_init(&c->std, ce TSRMLS_CC);
 
   retval.handle = zend_objects_store_put(
-      c, NULL,
+      c, nullptr,
       (zend_objects_free_object_storage_t) node_php_jsserver_free_storage,
-      NULL TSRMLS_CC);
+      nullptr TSRMLS_CC);
   retval.handlers = &node_php_jsserver_handlers;
 
   TRACE("<");
@@ -145,11 +145,11 @@ STUB_METHOD(__sleep)
 STUB_METHOD(__wakeup)
 
 static const zend_function_entry node_php_jsserver_methods[] = {
-  PHP_ME(JsServer, __construct,     NULL,
+  PHP_ME(JsServer, __construct,     nullptr,
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
-  PHP_ME(JsServer, __sleep,     NULL,
+  PHP_ME(JsServer, __sleep,     nullptr,
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
-  PHP_ME(JsServer, __wakeup,    NULL,
+  PHP_ME(JsServer, __wakeup,    nullptr,
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
   PHP_ME(JsServer, __get, node_php_jsserver_get_args,
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
@@ -170,9 +170,9 @@ PHP_MINIT_FUNCTION(node_php_jsserver_class) {
   /* JsServer handlers */
   memcpy(&node_php_jsserver_handlers, zend_get_std_object_handlers(),
          sizeof(zend_object_handlers));
-  node_php_jsserver_handlers.clone_obj = NULL;
-  node_php_jsserver_handlers.cast_object = NULL;
-  node_php_jsserver_handlers.get_property_ptr_ptr = NULL;
+  node_php_jsserver_handlers.clone_obj = nullptr;
+  node_php_jsserver_handlers.cast_object = nullptr;
+  node_php_jsserver_handlers.get_property_ptr_ptr = nullptr;
 
   TRACE("< PHP_MINIT_FUNCTION");
   return SUCCESS;

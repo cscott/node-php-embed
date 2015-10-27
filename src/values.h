@@ -283,20 +283,20 @@ class Value {
 
    private:
     void Destroy() {
-      if (data_ == NULL) { return; }
+      if (data_ == nullptr) { return; }
       switch (Owner()) {
       case NOT_OWNED: break;
       case PHP_OWNED: efree(const_cast<char*>(data_)); break;
       case CPP_OWNED: delete[] data_; break;
       }
-      data_ = NULL;
+      data_ = nullptr;
     }
   };
   class OStr : public Str {
     // An "owned string", will copy data on creation and free it on delete.
    public:
     explicit OStr(const char *data, std::size_t length)
-        : Str(NULL, length) {
+        : Str(nullptr, length) {
       char *ndata = new char[length + 1];
       memcpy(ndata, data, length);
       ndata[length] = 0;
@@ -325,7 +325,7 @@ class Value {
   };
   class OBuf : public Buf {
    public:
-    OBuf(const char *data, std::size_t length) : Buf(NULL, length) {
+    OBuf(const char *data, std::size_t length) : Buf(nullptr, length) {
       char *tmp = new char[length];
       memcpy(tmp, data, length);
       data_ = tmp;

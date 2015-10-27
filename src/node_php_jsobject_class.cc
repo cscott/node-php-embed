@@ -148,7 +148,7 @@ PHP_METHOD(JsObject, __isset) {
   TRACE(">");
   PARSE_PARAMS(__isset, "z/", &member);
   convert_to_string(member);
-  JsHasPropertyMsg msg(obj->channel, NULL, true,  // Sync call.
+  JsHasPropertyMsg msg(obj->channel, nullptr, true,  // Sync call.
                        obj->id, member, 0 TSRMLS_CC);
   obj->channel->SendToJs(&msg, MessageFlags::SYNC TSRMLS_CC);
   THROW_IF_EXCEPTION("JS exception thrown during __isset of \"%*s\"",
@@ -174,7 +174,7 @@ static int node_php_jsobject_has_property(zval *object, zval *member,
     return false;
   }
   FETCH_OBJ_ELSE(has_property, object, false);
-  JsHasPropertyMsg msg(obj->channel, NULL, true,  // Sync call.
+  JsHasPropertyMsg msg(obj->channel, nullptr, true,  // Sync call.
                        obj->id, member, has_set_exists TSRMLS_CC);
   obj->channel->SendToJs(&msg, MessageFlags::SYNC TSRMLS_CC);
   // Ok, result is in msg.retval_ or msg.exception_
@@ -231,7 +231,7 @@ PHP_METHOD(JsObject, __get) {
   zval *member;
   PARSE_PARAMS(__get, "z/", &member);
   convert_to_string(member);
-  JsReadPropertyMsg msg(obj->channel, NULL, true,  // Sync call.
+  JsReadPropertyMsg msg(obj->channel, nullptr, true,  // Sync call.
                         obj->id, member, 0 TSRMLS_CC);
   obj->channel->SendToJs(&msg, MessageFlags::SYNC TSRMLS_CC);
   THROW_IF_EXCEPTION("JS exception thrown during __get of \"%*s\"",
@@ -280,7 +280,7 @@ PHP_METHOD(JsObject, __set) {
   TRACE(">");
   PARSE_PARAMS(__set, "z/z", &member, &value);
   convert_to_string(member);
-  JsWritePropertyMsg msg(obj->channel, NULL, true,  // Sync call.
+  JsWritePropertyMsg msg(obj->channel, nullptr, true,  // Sync call.
                          obj->id, member, value TSRMLS_CC);
   obj->channel->SendToJs(&msg, MessageFlags::SYNC TSRMLS_CC);
   THROW_IF_EXCEPTION("JS exception thrown during __set of \"%*s\"",
@@ -326,7 +326,7 @@ PHP_METHOD(JsObject, __unset) {
   TRACE(">");
   PARSE_PARAMS(__unset, "z/", &member);
   convert_to_string(member);
-  JsDeletePropertyMsg msg(obj->channel, NULL, true,  // Sync call.
+  JsDeletePropertyMsg msg(obj->channel, nullptr, true,  // Sync call.
                           obj->id, member TSRMLS_CC);
   obj->channel->SendToJs(&msg, MessageFlags::SYNC TSRMLS_CC);
   THROW_IF_EXCEPTION("JS exception thrown during __unset of \"%*s\"",
@@ -441,7 +441,7 @@ PHP_METHOD(JsObject, __call) {
       argv[i] = *z;
     }
   }
-  JsInvokeMsg msg(obj->channel, NULL, true,      // Sync call.
+  JsInvokeMsg msg(obj->channel, nullptr, true,      // Sync call.
                   obj->id, member, argc, argv TSRMLS_CC);
   obj->channel->SendToJs(&msg, MessageFlags::SYNC TSRMLS_CC);
   THROW_IF_EXCEPTION("JS exception thrown during __call of \"%*s\"",
@@ -462,7 +462,7 @@ PHP_METHOD(JsObject, __invoke) {
                          "bad args to __invoke", 0 TSRMLS_CC);
     return;
   }
-  JsInvokeMsg msg(obj->channel, NULL, true,      // Sync call.
+  JsInvokeMsg msg(obj->channel, nullptr, true,      // Sync call.
                   obj->id, &member, argc, argv TSRMLS_CC);
   efree(argv);
   obj->channel->SendToJs(&msg, MessageFlags::SYNC TSRMLS_CC);
@@ -478,7 +478,7 @@ PHP_METHOD(JsObject, __toString) {
   // Implement `__toString` by calling JS `toString` method.
   // Use plain zval to avoid allocating copy of method name
   zval method; ZVAL_STRINGL(&method, "toString", 8, 0);
-  zval *args = NULL;
+  zval *args = nullptr;
   call_user_function(EG(function_table), &this_ptr, &method,
                      return_value, 0, &args TSRMLS_CC);
 }
@@ -554,9 +554,9 @@ static zend_object_value node_php_jsobject_new(zend_class_entry *ce TSRMLS_DC) {
   zend_object_std_init(&c->std, ce TSRMLS_CC);
 
   retval.handle = zend_objects_store_put(
-    c, NULL,
+    c, nullptr,
     (zend_objects_free_object_storage_t) node_php_jsobject_free_storage,
-    NULL TSRMLS_CC);
+    nullptr TSRMLS_CC);
   retval.handlers = &node_php_jsobject_handlers;
 
   TRACE("<");
@@ -587,7 +587,7 @@ void node_php_embed::node_php_jsobject_maybe_neuter(zval *o TSRMLS_DC) {
     (zend_object_store_get_object(o TSRMLS_CC));
   if (!obj) { return; }
   obj->id = 0;
-  obj->channel = NULL;
+  obj->channel = nullptr;
 }
 
 #define STUB_METHOD(name)                                               \
@@ -610,11 +610,11 @@ STUB_METHOD(__sleep)
 STUB_METHOD(__wakeup)
 
 static const zend_function_entry node_php_jsobject_methods[] = {
-  PHP_ME(JsObject, __construct, NULL,
+  PHP_ME(JsObject, __construct, nullptr,
          ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
-  PHP_ME(JsObject, __sleep,     NULL,
+  PHP_ME(JsObject, __sleep,     nullptr,
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
-  PHP_ME(JsObject, __wakeup,    NULL,
+  PHP_ME(JsObject, __wakeup,    nullptr,
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
 #if USE_MAGIC_ISSET
   PHP_ME(JsObject, __isset, node_php_jsobject_isset_args,
@@ -628,7 +628,7 @@ static const zend_function_entry node_php_jsobject_methods[] = {
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
   PHP_ME(JsObject, __call, node_php_jsobject_call_args,
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
-  PHP_ME(JsObject, __invoke, NULL,
+  PHP_ME(JsObject, __invoke, nullptr,
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
   PHP_ME(JsObject, __toString, node_php_jsobject_toString_args,
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
@@ -648,9 +648,9 @@ PHP_MINIT_FUNCTION(node_php_jsobject_class) {
   /* JsObject handlers */
   memcpy(&node_php_jsobject_handlers, zend_get_std_object_handlers(),
          sizeof(zend_object_handlers));
-  node_php_jsobject_handlers.clone_obj = NULL;
-  node_php_jsobject_handlers.cast_object = NULL;
-  node_php_jsobject_handlers.get_property_ptr_ptr = NULL;
+  node_php_jsobject_handlers.clone_obj = nullptr;
+  node_php_jsobject_handlers.cast_object = nullptr;
+  node_php_jsobject_handlers.get_property_ptr_ptr = nullptr;
 #if !USE_MAGIC_ISSET
   node_php_jsobject_handlers.has_property = node_php_jsobject_has_property;
 #endif
