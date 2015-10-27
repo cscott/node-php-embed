@@ -11,6 +11,7 @@ extern "C" {
 #include "sapi/embed/php_embed.h"
 #include "Zend/zend_exceptions.h"
 #include "Zend/zend_interfaces.h"
+#include "ext/standard/head.h"
 #include "ext/standard/info.h"
 }
 
@@ -102,6 +103,14 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
     // The remainder of cleanup is done in AfterExecute after that's all done.
     TRACE("< PhpRequestWorker");
   }
+  void AfterAsyncLoop(TSRMLS_D) override {
+    TRACE("> PhpRequestWorker");
+    // Flush the buffers, send the headers.
+    // (If we wait until AfterExecute, the queues are already shut down.)
+    php_header(TSRMLS_C);
+    php_output_flush_all(TSRMLS_C);
+    TRACE("< PhpRequestWorker");
+  }
   void AfterExecute(TSRMLS_D) override {
     TRACE("> PhpRequestWorker");
     NODE_PHP_EMBED_G(worker) = NULL;
@@ -150,6 +159,7 @@ static int node_php_embed_ub_write(const char *str,
   // Fetch the MapperChannel for this thread.
   PhpRequestWorker *worker = NODE_PHP_EMBED_G(worker);
   MapperChannel *channel = NODE_PHP_EMBED_G(channel);
+  if (!worker) { return str_length; /* in module shutdown */ }
   ZVal stream{ZEND_FILE_LINE_C}, retval{ZEND_FILE_LINE_C};
   worker->GetStream().ToPhp(channel, stream TSRMLS_CC);
   // Use plain zval to avoid allocating copy of method name.
@@ -160,6 +170,10 @@ static int node_php_embed_ub_write(const char *str,
                                            OwnershipType::NOT_OWNED TSRMLS_CC);
   call_user_function(EG(function_table), stream.PtrPtr(), &method,
                      retval.Ptr(), 1, args TSRMLS_CC);
+  if (EG(exception)) {
+    NPE_ERROR("- exception caught (ignoring)");
+    zend_clear_exception(TSRMLS_C);
+  }
   zval_dtor(&buffer);
   TRACE("<");
   return str_length;
@@ -189,11 +203,43 @@ static void node_php_embed_flush(void *server_context) {
   call_user_function(EG(function_table), stream.PtrPtr(), &method,
                      retval.Ptr(), 2, args TSRMLS_CC);
   if (EG(exception)) {
-      TRACE("- exception caught (ignoring)");
-      zend_clear_exception(TSRMLS_C);
+    // This exception is often the "ASYNC inside SYNC" TypeError, which
+    // is harmless in this context, so don't be noisy about it.
+    TRACE("- exception caught (ignoring)");
+    zend_clear_exception(TSRMLS_C);
   }
   zval_dtor(&buffer);
   zval_dtor(&wait);
+  TRACE("<");
+}
+
+static void node_php_embed_send_header(sapi_header_struct *sapi_header,
+                                       void *server_context TSRMLS_DC) {
+  TRACE(">");
+  // Fetch the MapperChannel for this thread.
+  PhpRequestWorker *worker = NODE_PHP_EMBED_G(worker);
+  MapperChannel *channel = NODE_PHP_EMBED_G(channel);
+  if (!worker) { return; /* we're in module shutdown, no headers any more */ }
+  ZVal stream{ZEND_FILE_LINE_C}, retval{ZEND_FILE_LINE_C};
+  worker->GetStream().ToPhp(channel, stream TSRMLS_CC);
+  // Use plain zval to avoid allocating copy of method name.
+  // The "sendHeader" method is a special JS-side method to translate
+  // headers into node.js format.
+  zval method; ZVAL_STRINGL(&method, "sendHeader", 10, 0);
+  // Special buffer type to pass `str` as a node buffer and avoid copying.
+  zval buffer, *args[] = { &buffer }; INIT_ZVAL(buffer);
+  if (sapi_header) {  // NULL is passed to indicate "last call"
+    node_php_embed::node_php_jsbuffer_create(
+        &buffer, sapi_header->header, sapi_header->header_len,
+        OwnershipType::NOT_OWNED TSRMLS_CC);
+  }
+  call_user_function(EG(function_table), stream.PtrPtr(), &method,
+                     retval.Ptr(), 1, args TSRMLS_CC);
+  if (EG(exception)) {
+    NPE_ERROR("- exception caught (ignoring)");
+    zend_clear_exception(TSRMLS_C);
+  }
+  zval_dtor(&buffer);
   TRACE("<");
 }
 
@@ -337,6 +383,7 @@ NAN_MODULE_INIT(ModuleInit) {
   php_embed_module.php_ini_ignore_cwd = true;
   php_embed_module.ini_defaults = NULL;
   php_embed_module.startup = node_php_embed_startup;
+  php_embed_module.send_header = node_php_embed_send_header;
   php_embed_module.ub_write = node_php_embed_ub_write;
   php_embed_module.flush = node_php_embed_flush;
   php_embed_module.register_server_variables =

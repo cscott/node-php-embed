@@ -130,6 +130,10 @@ class AsyncMapperChannel : public MapperChannel {
   // This will execute on the PHP side.
   virtual void Execute(MapperChannel *mapperChannel TSRMLS_DC) = 0;
 
+  // This provides one last chance to flush buffers and send headers
+  // after the async loop has finished and before queues are shut down.
+  virtual void AfterAsyncLoop(TSRMLS_D) { }
+
   // This does additional PHP side cleanup after Execute completes
   // and the queues have been emptied.
   virtual void AfterExecute(TSRMLS_D) { }
@@ -212,6 +216,8 @@ class AsyncMapperChannel : public MapperChannel {
     // Now run any pending async tasks, until there are no more.
     // This turns PHP into a NodeJS-style execution model!
     uv_run(php_loop_, UV_RUN_DEFAULT);
+    /* Flush the buffers, send the headers. */
+    AfterAsyncLoop(TSRMLS_C);
     /* Start cleaning up. */
     objid_t last;
     {
