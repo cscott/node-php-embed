@@ -37,7 +37,9 @@
     "host": "https://github.com",
     "remote_path": "/cscott/node-php-embed/releases/download/{version}/"
   },
-  "engines" : { "node" : ">=2.4.0" },
+  "engines": {
+    "node": ">=2.4.0"
+  },
   "dependencies": {
     "nan": "~2.1.0",
     "node-pre-gyp": "~0.6.11",
@@ -47,7 +49,7 @@
     "node-pre-gyp"
   ],
   "devDependencies": {
-    "jscs": "~2.3.5",
+    "jscs": "~2.4.0",
     "jshint": "~2.8.0",
     "mocha": "~2.3.3",
     "readable-stream": "~2.0.2",
