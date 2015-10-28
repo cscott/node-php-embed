@@ -17,6 +17,7 @@ addons:
     - g++-5-multilib
     - linux-libc-dev:i386
     - libxml2-dev:i386
+    - zlib1g-dev:i386
 
 ## don't re-build for tags so that [publish binary] is not re-run
 ## https://github.com/travis-ci/travis-ci/issues/1532
@@ -30,7 +31,9 @@ matrix:
      # Linux
      - os: linux
        compiler: clang
-       env: NODE_VERSION="4.1.2" # node abi 46
+       env: NODE_VERSION="4.1.2" PUBLISHABLE=false
+     - os: linux
+       env: NODE_VERSION="4.1.2" BUILD_X86=true # node abi 46
      # Test in release mode, not just debug mode.
      - os: linux
        compiler: clang
@@ -40,7 +43,9 @@ matrix:
        env: NODE_VERSION="4.0.0" PUBLISHABLE=false
      - os: linux
        compiler: clang
-       env: NODE_VERSION="iojs-v3.3.1" # node abi 45
+       env: NODE_VERSION="iojs-v3.3.1" PUBLISHABLE=false
+     - os: linux
+       env: NODE_VERSION="iojs-v3.3.1" BUILD_X86=true # node abi 45
      - os: linux
        compiler: clang
        env: NODE_VERSION="iojs-v3.1.0" PUBLISHABLE=false
