@@ -5,6 +5,9 @@
 // Copyright (c) 2015 C. Scott Ananian <cscott@cscott.net>
 #include "src/node_php_embed.h"
 
+#include <string>
+#include <unordered_map>
+
 #include "nan.h"
 
 extern "C" {
@@ -52,9 +55,11 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
  public:
   PhpRequestWorker(Nan::Callback *callback, v8::Local<v8::String> source,
                    v8::Local<v8::Object> stream, v8::Local<v8::Array> args,
+                   v8::Local<v8::Object> server_vars,
                    v8::Local<v8::Value> init_func)
       : AsyncMessageWorker(callback), result_(), stream_(), init_func_(),
-        argc_(args->Length()), argv_(new char*[args->Length()]) {
+        argc_(args->Length()), argv_(new char*[args->Length()]),
+        server_vars_() {
     JsStartupMapper mapper(this);
     source_.Set(&mapper, source);
     stream_.Set(&mapper, stream);
@@ -65,6 +70,18 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
         Nan::Get(args, i)
         .FromMaybe(static_cast< v8::Local<v8::Value> >(Nan::EmptyString())));
       argv_[i] = strdup(*s ? *s : "");
+    }
+    // Turn the server_vars object into a c++ string->string map.
+    v8::Local<v8::Array> names =  Nan::GetPropertyNames(server_vars)
+      .FromMaybe(Nan::New<v8::Array>(0));
+    for (uint32_t i = 0; i < names->Length(); i++) {
+      v8::Local<v8::Value> key = Nan::Get(names, i).ToLocalChecked();
+      v8::Local<v8::Value> value = Nan::Get(server_vars, key)
+        .FromMaybe(static_cast<v8::Local<v8::Value> >(Nan::Undefined()));
+      if (!value->IsString()) { continue; }
+      Nan::Utf8String k(key), v(value);
+      if (!(*k && *v)) { continue; }
+      server_vars_.emplace(*k, *v);
     }
   }
   virtual ~PhpRequestWorker() {
@@ -81,8 +98,29 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
   // should go on `this`.
   void Execute(MapperChannel *channel TSRMLS_DC) override {
     TRACE("> PhpRequestWorker");
+    // Certain fields in request_info need to be set up before
+    // php_request_startup is invoked.
     SG(request_info).argc = argc_;
     SG(request_info).argv = argv_;
+#define SET_REQUEST_INFO(envvar, requestvar)                            \
+    if (server_vars_.count(envvar)) {                                   \
+      SG(request_info).requestvar = estrdup((server_vars_[envvar]).c_str()); \
+    } else {                                                            \
+      SG(request_info).requestvar = nullptr;                            \
+    }
+#define FREE_REQUEST_INFO(requestvar) /* for later */           \
+    if (SG(request_info).requestvar) {                          \
+      efree(const_cast<char*>(SG(request_info).requestvar));    \
+      SG(request_info).requestvar = nullptr;                    \
+    }
+    SET_REQUEST_INFO("REQUEST_METHOD", request_method);
+    SET_REQUEST_INFO("QUERY_STRING", query_string);
+    SET_REQUEST_INFO("PATH_TRANSLATED", path_translated);
+    SET_REQUEST_INFO("REQUEST_URI", request_uri);
+    // xxx set proto_num ?
+    // xxx set cookie_data ?
+    server_vars_.clear();  // We don't need to keep this around any more.
+
     if (php_request_startup(TSRMLS_C) == FAILURE) {
       Nan::ThrowError("can't create request");
       return;
@@ -132,9 +170,13 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
     NODE_PHP_EMBED_G(worker) = nullptr;
     NODE_PHP_EMBED_G(channel) = nullptr;
     TRACE("- request shutdown");
-    php_request_shutdown(nullptr);
     SG(request_info).argc = 0;
     SG(request_info).argv = nullptr;
+    FREE_REQUEST_INFO(request_method);
+    FREE_REQUEST_INFO(query_string);
+    FREE_REQUEST_INFO(path_translated);
+    FREE_REQUEST_INFO(request_uri);
+    php_request_shutdown(nullptr);
     TRACE("< PhpRequestWorker");
   }
   // Executed when the async work is complete.
@@ -158,6 +200,7 @@ class node_php_embed::PhpRequestWorker : public AsyncMessageWorker {
   Value init_func_;
   uint32_t argc_;
   char **argv_;
+  std::unordered_map<std::string, std::string> server_vars_;
 };
 
 /* PHP extension metadata */
@@ -314,21 +357,25 @@ NAN_METHOD(request) {
   if (!info[2]->IsArray()) {
     return Nan::ThrowTypeError("argument array expected");
   }
-  if (!info[3]->IsFunction()) {
-    return Nan::ThrowTypeError("init function expected");
+  if (!info[3]->IsObject()) {
+    return Nan::ThrowTypeError("server vars object expected");
   }
   if (!info[4]->IsFunction()) {
+    return Nan::ThrowTypeError("init function expected");
+  }
+  if (!info[5]->IsFunction()) {
     return Nan::ThrowTypeError("callback expected");
   }
   v8::Local<v8::String> source = info[0].As<v8::String>();
   v8::Local<v8::Object> stream = info[1].As<v8::Object>();
   v8::Local<v8::Array> args = info[2].As<v8::Array>();
-  v8::Local<v8::Value> init_func = info[3];
-  Nan::Callback *callback = new Nan::Callback(info[4].As<v8::Function>());
+  v8::Local<v8::Object> server_vars = info[3].As<v8::Object>();
+  v8::Local<v8::Value> init_func = info[4];
+  Nan::Callback *callback = new Nan::Callback(info[5].As<v8::Function>());
 
   node_php_embed_ensure_init();
   Nan::AsyncQueueWorker(new PhpRequestWorker(callback, source, stream,
-                                             args, init_func));
+                                             args, server_vars, init_func));
   TRACE("<");
 }
 
@@ -395,6 +442,15 @@ static void node_php_embed_ensure_init(void) {
   // Shutdown the initially-created request; we'll create our own request
   // objects inside PhpRequestWorker.
   php_request_shutdown(nullptr);
+#define CHECK_NULL(requestvar)                                          \
+  if (SG(request_info).requestvar) {                                    \
+    NPE_ERROR("OOPS! " #requestvar " is set!");                         \
+    SG(request_info).requestvar = nullptr;                              \
+  }
+  CHECK_NULL(request_method);
+  CHECK_NULL(query_string);
+  CHECK_NULL(path_translated);
+  CHECK_NULL(request_uri);
   node::AtExit(ModuleShutdown, nullptr);
   TRACE("<");
 }
