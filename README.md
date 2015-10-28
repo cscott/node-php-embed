@@ -10,7 +10,9 @@ Node/iojs >= 2.4.0 is currently required, since we use `NativeWeakMap`s
 in the implementation.  This could probably be worked around using
 v8 hidden properties, but it doesn't seem worth it right now.
 
-# USAGE
+# Usage
+
+## Basic
 
 ```js
 var path = require('path');
@@ -23,6 +25,35 @@ php.request({
 });
 ```
 
+## Advanced
+
+```js
+var php = require('php-embed');
+php.request({
+  source: ['call_user_func(function() {',
+           '  class Foo {',
+           '    var $bar = "bar";',
+           '  }',
+           ' $c = $_SERVER["CONTEXT"];',
+           ' // Invoke an Async JS method',
+           ' $result = $c->jsfunc(new Foo, $c->jsvalue, new Js\\Wait);',
+           '  // And return the value back to JS.',
+          '  return $result;',
+          '})'].join('\n'),
+  context: {
+    jsvalue: 42, // Pass JS values to PHP
+    jsfunc: function(foo, value, cb) {
+      // Access PHP object from JS
+      console.log(foo.bar, value); // Prints "bar 42"
+      // Asynchronous completion, doesn't block node event loop
+      setTimeout(function() { cb(null, "done") }, 500);
+    }
+  }
+}).then(function(v) {
+  console.log(v); // Prints "done" ($result from PHP)
+}).done();
+```
+
 # API
 
 ## php.request(options, [callback])
@@ -33,15 +64,33 @@ parameter.
 *   `options`: a hash containing various parameters for the request.
     Either `source` or `file` is mandatory; the rest are optional.
     - `source`:
-        Specifies a source string to evaluate in the request context.
+        Specifies a source string to evaluate *as an expression* in
+        the request context.  (If you want to evaluate a statement,
+        you can wrap it in `call_user_func(function () { ... })`.)
     - `file`:
         Specifies a PHP file to evaluate in the request context.
     - `stream`:
-        A node `stream.Writable` to accept output from the PHP request.
-        If not specified, defaults to `process.stdout`.
+        A node `stream.Writable` to accept output from the PHP
+        request.  If not specified, defaults to `process.stdout`.
+    - `request`:
+        If an `http.IncomingMessage` is provided here, the PHP
+        server variables will be set up with information about
+        the request.
+    - `args`:
+        If an array with at least one element is provided, the
+        PHP `$argc` and `$argv` variables will be set up as
+        PHP CLI programs expect.  Note that `args[0]` should
+        be the "script file name", as in C convention.
     - `context`:
         A JavaScript object which will be made available to the PHP
         request in `$_SERVER['CONTEXT']`.
+    - `serverInitFunc`:
+        The user can provide a JavaScript function which will
+        be passed an object containing values for the PHP
+        [`$_SERVER`](http://php.net/manual/en/reserved.variables.server.php)
+        variable, such as `REQUEST_URI`, `SERVER_ADMIN`, etc.
+        You can add or override values in this function as needed
+        to set up your request.
 *   `callback` *(optional)*: A standard node callback.  The first argument
     is non-null if an exception was raised. The second argument is the
     result of the PHP evaluation, converted to a string.
@@ -102,7 +151,63 @@ of reading the file.
 Note that calls using `Js\Wait` block the PHP thread but do not
 block the node thread.
 
-# INSTALLING
+# Javascript API
+
+The JavaScript `in` operator, when applied to a wrapped PHP object,
+works the same as the PHP `isset()` function.  Similarly, when applied
+to a wrapped PHP object, JavaScript `delete` works like PHP `unset`.
+
+```js
+var php = require('php-embed');
+php.request({
+  source: 'call_user_func(function() {' +
+          '  class Foo { var $bar = null; var $bat = 42; } ' +
+          '  $_SERVER["CONTEXT"](new Foo()); ' +
+          '})',
+  context: function(foo) {
+    console.log("bar" in foo ? "yes" : "no"); // This prints "no"
+    console.log("bat" in foo ? "yes" : "no"); // This prints "yes"
+  }
+}).done();
+```
+
+PHP has separate namespaces for properties and methods, while JavaScript
+has just one.  Usually this isn't an issue, but if you need to you can use
+a leading `$` to specify a property, or `__call` to specifically invoke a
+method.
+
+```js
+var php = require('php-embed');
+php.request({
+  source: ['call_user_func(function() {',
+           '  class Foo {',
+           '    var $bar = "bar";',
+           '    function bar($what) { echo "I am a ", $what, "!\n"; }',
+           '  }',
+           '  $foo = new Foo;',
+           '  // This prints "bar"',
+           '  echo $foo->bar, "\n";',
+           '  // This prints "I am a function!"',
+           '  $foo->bar("function");',
+           '  // Now try it in JavaScript',
+          '  $_SERVER["CONTEXT"]($foo);',
+          '})'].join('\n'),
+  context: function(foo) {
+    // This prints "bar"
+    console.log(foo.$bar);
+    // This prints "I am a function"
+    foo.__call("bar", "function");
+  }
+}).done();
+```
+
+At the moment, all property accesses and method invocations from
+JavaScript to PHP are done synchronously; that is, they block the
+JavaScript event loop.  The mechanisms are in place for asynchronous
+access; I just haven't quite figured out what the syntax for that
+should look like.
+
+# Installing
 
 You can use [`npm`](https://github.com/isaacs/npm) to download and install:
 
@@ -117,7 +222,7 @@ version of `node-gyp`, and thus your system must meet
 It is also possible to make your own build of `php-embed` from its
 source instead of its npm package ([see below](#building-from-the-source)).
 
-# BUILDING FROM THE SOURCE
+# Building from source
 
 Unless building via `npm install` you will need `node-pre-gyp`
 installed globally:
@@ -149,23 +254,41 @@ Developers hacking on the code will probably want to use:
 
 Passing the `--debug` flag to `node-pre-gyp` enables memory checking, and
 the `build` command (instead of `rebuild`) avoids rebuilding `libphp5`
-from scratch after every change.
+from scratch after every change.  (You can also use `npm run
+debug-build` if you find that easier to remember.)
 
-# TESTING
+# Testing
 
-[mocha](https://github.com/visionmedia/mocha) is required to run unit tests.
+To run the test suite, use:
 
-    npm install mocha
     npm test
 
+This will run the JavaScript and C++ linters, as well as a test suite
+using [mocha](https://github.com/visionmedia/mocha).
 
-# CONTRIBUTORS
+During development, `npm run jscs-fix` will automatically correct most
+JavaScript code style issues, and `npm run valgrind` will detect a
+large number of potential memory issues.  Note that node itself will
+leak a small amount of memory from `node::CreateEnvironment`,
+`node::cares_wrap::Initialize`, and `node::Start`; these can safely be
+ignored in the `valgrind` report.
+
+# Contributors
 
 * [C. Scott Ananian](https://github.com/cscott)
 
-# RELATED PROJECTS
+# Related projects
 
-# LICENSE
+* [`node-mediawiki-express`](https://github.com/cscott/node-mediawiki-express)
+  uses `php-embed` to run mediawiki inside a node.js express server.
+* [`v8js`](https://github.com/preillyme/v8js) is a "mirror image"
+  project: it embeds the v8 JavaScript engine inside of PHP, whereas
+  `php-embed` embeds PHP inside node/v8.  The author of `php-embed`
+  is a contributor to `v8js` and they share bits of code.  The
+  JavaScript API to access PHP objects is deliberately similar
+  to that used by `v8js`.
+
+# License
 Copyright (c) 2015 C. Scott Ananian.
 
 `node-php-embed` is licensed using the same
