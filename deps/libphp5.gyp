@@ -84,6 +84,8 @@
                 '--enable-maintainer-zts', '--enable-embed=static',
                 '--prefix', '<(SHARED_INTERMEDIATE_DIR)/build',
                 '--enable-opcache=static',
+                # mediawiki says this is necessary
+                '--with-zlib', '--enable-mbstring',
                 # turn off some unnecessary bits
                 '--disable-cli', '--disable-cgi',
                 '<@(configure_options)'
