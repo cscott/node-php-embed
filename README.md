@@ -54,6 +54,19 @@ php.request({
 }).done();
 ```
 
+## Running command-line PHP scripts
+
+The `php-embed` package contains a binary which can be used as a
+drop-in replacement for the `php` CLI binary:
+
+```sh
+npm install -g php-embed
+php-embed some-file.php argument1 argument2....
+```
+
+Not every feature of the PHP CLI binary has been implemented; this
+is currently mostly a convenient testing tool.
+
 # API
 
 ## php.request(options, [callback])

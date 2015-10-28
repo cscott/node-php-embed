@@ -5,6 +5,9 @@
   "homepage": "http://github.com/cscott/node-php-embed",
   "author": "C. Scott Ananian <cscott@cscott.net>",
   "main": "lib/index",
+  "bin": {
+    "php-embed": "./bin/php-embed.js"
+  },
   "keywords": [
     "php",
     "hhvm"

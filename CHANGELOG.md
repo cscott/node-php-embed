@@ -4,6 +4,7 @@
   requests from node's http server.
 * Support passing "command-line arguments" to allow the embedded PHP
   to execute scripts using PHP's CLI interface.
+* Add a simple `php-embed` CLI script for easy testing.
 * Allow PHP to invoke asynchronous JavaScript functions synchronously
   by passing a `Js\Wait` object where the callback would go.  This
   blocks the PHP event loop (naturally) but not the JavaScript one.
