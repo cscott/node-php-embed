@@ -1,4 +1,4 @@
-# php-embed x.x.x (not yet released)
+# php-embed 0.5.0 (2015-10-28)
 * Support server variables, headers, and query string
   processing to allow using the embedded PHP to process http
   requests from node's http server.
