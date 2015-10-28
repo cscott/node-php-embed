@@ -90,6 +90,7 @@ ZEND_END_ARG_INFO()
 
 PHP_METHOD(JsServer, __get) {
   TRACE(">");
+#if 0  // XXX disabled, since it seems to be corrupting memory.
   zval *member;
   PARSE_PARAMS(__get, "z/", &member);
   convert_to_string(member);
@@ -104,6 +105,9 @@ PHP_METHOD(JsServer, __get) {
   } else {
       *return_value_ptr = *retval;
   }
+#else
+  ZVAL_BOOL(return_value, true);
+#endif
   TRACE("<");
 }
 
