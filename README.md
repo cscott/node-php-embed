@@ -1,4 +1,4 @@
-# node-php-embed
+# php-embed
 [![NPM][NPM1]][NPM2]
 
 [![Build Status][1]][2] [![dependency status][3]][4] [![dev dependency status][5]][6]
@@ -232,6 +232,11 @@ In both cases the module is automatically built with npm's internal
 version of `node-gyp`, and thus your system must meet
 [node-gyp's requirements](https://github.com/TooTallNate/node-gyp#installation).
 
+The prebuilt binaries are built using g++-5 on Linux, and so you will
+need to have the appropriate versions of the C++ standard library
+available.  Something like `apt-get install g++-5` should suffice on
+Debian/Ubuntu.
+
 It is also possible to make your own build of `php-embed` from its
 source instead of its npm package ([see below](#building-from-the-source)).
 
@@ -260,6 +265,24 @@ development headers available.  If you don't have them installed,
 install the `-dev` package with your package manager, e.g.
 `apt-get install libphp5-embed php5-dev` for
 Debian/Ubuntu.
+
+You will also need a C++11 compiler.  We perform builds using
+clang-3.5 and g++-5; both of these are known to work.  (Use
+`apt-get install g++-5` to install g++-5 if `g++ --version`
+reveals that you have an older version of `g++`.)  To ensure
+that `npm`/`node-pre-gyp` use your preferred compiler, you may
+need to do something like:
+
+```sh
+export CXX="g++-5"
+export CC="gcc-5"
+```
+On Mac OSX, you need to limit support to OS X 10.7 and above in order
+to get C++11 support.  Something like the following should work:
+
+```sh
+export MACOSX_DEPLOYMENT_TARGET=10.7 ;
+```
 
 Developers hacking on the code will probably want to use:
 
@@ -304,7 +327,7 @@ ignored in the `valgrind` report.
 # License
 Copyright (c) 2015 C. Scott Ananian.
 
-`node-php-embed` is licensed using the same
+`php-embed` is licensed using the same
 [license](http://www.php.net/license/3_01.txt) as PHP itself.
 
 [NPM1]: https://nodei.co/npm/php-embed.png
