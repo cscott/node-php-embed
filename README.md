@@ -4,7 +4,8 @@
 [![Build Status][1]][2] [![dependency status][3]][4] [![dev dependency status][5]][6]
 
 The node `php-embed` package binds to PHP's "embed SAPI" in order to
-provide interoperability between PHP and JavaScript code.
+provide bidirectional interoperability between PHP and JavaScript code
+in a single process.
 
 Node/iojs >= 2.4.0 is currently required, since we use `NativeWeakMap`s
 in the implementation.  This could probably be worked around using
@@ -70,7 +71,7 @@ is currently mostly a convenient testing tool.
 # API
 
 ## php.request(options, [callback])
-Triggers a PHP "request", and returns a `Promise` which will be
+Triggers a PHP "request", and returns a [`Promise`] which will be
 resolved when the request completes.  If you prefer to use callbacks,
 you can ignore the return value and pass a callback as the second
 parameter.
@@ -79,14 +80,14 @@ parameter.
     - `source`:
         Specifies a source string to evaluate *as an expression* in
         the request context.  (If you want to evaluate a statement,
-        you can wrap it in `call_user_func(function () { ... })`.)
+        you can wrap it in [`call_user_func`]`(function () { ... })`.)
     - `file`:
         Specifies a PHP file to evaluate in the request context.
     - `stream`:
-        A node `stream.Writable` to accept output from the PHP
+        A node [`stream.Writable`] to accept output from the PHP
         request.  If not specified, defaults to `process.stdout`.
     - `request`:
-        If an `http.IncomingMessage` is provided here, the PHP
+        If an [`http.IncomingMessage`] is provided here, the PHP
         server variables will be set up with information about
         the request.
     - `args`:
@@ -100,18 +101,17 @@ parameter.
     - `serverInitFunc`:
         The user can provide a JavaScript function which will
         be passed an object containing values for the PHP
-        [`$_SERVER`](http://php.net/manual/en/reserved.variables.server.php)
-        variable, such as `REQUEST_URI`, `SERVER_ADMIN`, etc.
+        [`$_SERVER`] variable, such as `REQUEST_URI`, `SERVER_ADMIN`, etc.
         You can add or override values in this function as needed
         to set up your request.
 *   `callback` *(optional)*: A standard node callback.  The first argument
-    is non-null if an exception was raised. The second argument is the
+    is non-null iff an exception was raised. The second argument is the
     result of the PHP evaluation, converted to a string.
 
 # PHP API
 
 From the PHP side, there are three new classes defined, all in the
-`Js` namespace, and one new property defined in the `$_SERVER`
+`Js` namespace, and one new property defined in the [`$_SERVER`]
 superglobal.
 
 ## `$_SERVER['CONTEXT']`
@@ -148,14 +148,14 @@ PHP code as if they were synchronous.  You create a new instance of
 standard node-style callback.  For example, if the JavaScript
 `setTimeout` function were made available to PHP as `$setTimeout`, then:
 ```php
-$setTimeout(new Js\Wait(), 5000);
+$setTimeout(new Js\Wait, 5000);
 ```
 would halt the PHP thread for 5 seconds.  More usefully, if you were
-to make the node `fs` module available to PHP as `$fs`, then:
+to make the node [`fs`] module available to PHP as `$fs`, then:
 ```php
-$contents = $fs.readFile('path/to/file', 'utf8', new Js\Wait());
+$contents = $fs.readFile('path/to/file', 'utf8', new Js\Wait);
 ```
-would invoke the `readFile` method asynchronously in the node context,
+would invoke the [`fs.readFile`] method asynchronously in the node context,
 but block the PHP thread until its callback was invoked.  The result
 returned in the callback would then be used as the return value for
 the function invocation, resulting in `$contents` getting the result
@@ -167,8 +167,8 @@ block the node thread.
 # Javascript API
 
 The JavaScript `in` operator, when applied to a wrapped PHP object,
-works the same as the PHP `isset()` function.  Similarly, when applied
-to a wrapped PHP object, JavaScript `delete` works like PHP `unset`.
+works the same as the PHP [`isset()`] function.  Similarly, when applied
+to a wrapped PHP object, JavaScript `delete` works like PHP [`unset()`].
 
 ```js
 var php = require('php-embed');
@@ -263,8 +263,9 @@ Or, using `npm`:
 If building against an external `libphp5` make sure to have the
 development headers available.  If you don't have them installed,
 install the `-dev` package with your package manager, e.g.
-`apt-get install libphp5-embed php5-dev` for
-Debian/Ubuntu.
+`apt-get install libphp5-embed php5-dev` for Debian/Ubuntu.
+Your external `libphp5` should have been built with thread-safety
+enabled (`ZTS` turned on).
 
 You will also need a C++11 compiler.  We perform builds using
 clang-3.5 and g++-5; both of these are known to work.  (Use
@@ -315,20 +316,43 @@ ignored in the `valgrind` report.
 
 # Related projects
 
-* [`node-mediawiki-express`](https://github.com/cscott/node-mediawiki-express)
-  uses `php-embed` to run mediawiki inside a node.js express server.
+* [`mediawiki-express`](https://github.com/cscott/node-mediawiki-express)
+  is an npm package which uses `php-embed` to run mediawiki inside a
+  node.js [`express`](http://expressjs.com) server.
 * [`v8js`](https://github.com/preillyme/v8js) is a "mirror image"
   project: it embeds the v8 JavaScript engine inside of PHP, whereas
   `php-embed` embeds PHP inside node/v8.  The author of `php-embed`
   is a contributor to `v8js` and they share bits of code.  The
   JavaScript API to access PHP objects is deliberately similar
   to that used by `v8js`.
+* [`dnode-php`](https://github.com/bergie/dnode-php) is an
+  RPC protocol implementation for Node and PHP, allowing calls
+  between Node and PHP code running on separate servers.  See
+  also [`require-php`](https://www.npmjs.com/package/require-php),
+  which creates the PHP server on the fly to provide a "single server"
+  experience similar to that of `php-embed`.
+* [`exec-php`](https://www.npmjs.com/package/exec-php) is another
+  clever embedding which uses the ability of the PHP CLI binary
+  to execute a single function in order to first export the
+  set of functions defined in a PHP file (using the
+  `_exec_php_get_user_functions` built-in) and then to implement
+  function invocation.
 
 # License
 Copyright (c) 2015 C. Scott Ananian.
 
 `php-embed` is licensed using the same
 [license](http://www.php.net/license/3_01.txt) as PHP itself.
+
+[`Promise`]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise
+[`call_user_func`]: http://php.net/manual/en/function.call-user-func.php
+[`stream.Writable`]: https://nodejs.org/api/stream.html#stream_class_stream_writable
+[`http.IncomingMessage`]: https://nodejs.org/api/http.html#http_http_incomingmessage
+[`$_SERVER`]: http://php.net/manual/en/reserved.variables.server.php
+[`fs`]: https://nodejs.org/api/fs.html
+[`fs.readFile`]: https://nodejs.org/api/fs.html#fs_fs_readfile_filename_options_callback
+[`isset()`]: http://php.net/manual/en/function.isset.php
+[`unset()`]: http://php.net/manual/en/function.unset.php
 
 [NPM1]: https://nodei.co/npm/php-embed.png
 [NPM2]: https://nodei.co/npm/php-embed/
