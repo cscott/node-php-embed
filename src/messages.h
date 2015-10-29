@@ -6,6 +6,12 @@
 
 #include <iostream>
 
+#include "nan.h"
+
+extern "C" {
+#include "Zend/zend_exceptions.h"  // for zend_clear_exception
+}
+
 #include "src/macros.h"
 #include "src/values.h"
 

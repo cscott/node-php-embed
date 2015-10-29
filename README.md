@@ -75,7 +75,7 @@ Triggers a PHP "request", and returns a [`Promise`] which will be
 resolved when the request completes.  If you prefer to use callbacks,
 you can ignore the return value and pass a callback as the second
 parameter.
-*   `options`: a hash containing various parameters for the request.
+*   `options`: an object containing various parameters for the request.
     Either `source` or `file` is mandatory; the rest are optional.
     - `source`:
         Specifies a source string to evaluate *as an expression* in
