@@ -35,7 +35,12 @@ class PhpRequestWorker : public AsyncMessageWorker {
   void Execute(MapperChannel *channel TSRMLS_DC) override;
   void AfterAsyncLoop(TSRMLS_D) override;
   void AfterExecute(TSRMLS_D) override;
+
+  // Executed in the JS thread.
   void HandleOKCallback(JsObjectMapper *m) override;
+
+  // Used during module startup to check SG(request_info)
+  static void CheckRequestInfo(TSRMLS_D);
 
  private:
   Value source_;

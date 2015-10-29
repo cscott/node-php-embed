@@ -139,6 +139,12 @@ static void node_php_embed_send_header(sapi_header_struct *sapi_header,
   TRACE("<");
 }
 
+static char * node_php_embed_read_cookies(TSRMLS_D) {
+  // This is a hack to prevent the SAPI from overwriting the
+  // cookie data we set up in the PhpRequestWorker constructor.
+  return SG(request_info).cookie_data;
+}
+
 static void node_php_embed_register_server_variables(
     zval *track_vars_array TSRMLS_DC) {
   TRACE(">");
@@ -275,15 +281,7 @@ static void node_php_embed_ensure_init(void) {
   // Shutdown the initially-created request; we'll create our own request
   // objects inside PhpRequestWorker.
   php_request_shutdown(nullptr);
-#define CHECK_NULL(requestvar)                                          \
-  if (SG(request_info).requestvar) {                                    \
-    NPE_ERROR("OOPS! " #requestvar " is set!");                         \
-    SG(request_info).requestvar = nullptr;                              \
-  }
-  CHECK_NULL(request_method);
-  CHECK_NULL(query_string);
-  CHECK_NULL(path_translated);
-  CHECK_NULL(request_uri);
+  PhpRequestWorker::CheckRequestInfo(TSRMLS_C);
   node::AtExit(ModuleShutdown, nullptr);
   TRACE("<");
 }
@@ -294,10 +292,13 @@ NAN_MODULE_INIT(ModuleInit) {
   php_embed_module.php_ini_ignore = true;
   php_embed_module.php_ini_ignore_cwd = true;
   php_embed_module.ini_defaults = nullptr;
+  // The following initialization statements are kept in the same
+  // order as the fields in `struct _sapi_module_struct` (SAPI.h)
   php_embed_module.startup = node_php_embed_startup;
-  php_embed_module.send_header = node_php_embed_send_header;
   php_embed_module.ub_write = node_php_embed_ub_write;
   php_embed_module.flush = node_php_embed_flush;
+  php_embed_module.send_header = node_php_embed_send_header;
+  php_embed_module.read_cookies = node_php_embed_read_cookies;
   php_embed_module.register_server_variables =
     node_php_embed_register_server_variables;
   // Most of init will be done lazily in node_php_embed_ensure_init()

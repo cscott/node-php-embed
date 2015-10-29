@@ -83,10 +83,16 @@ void PhpRequestWorker::Execute(MapperChannel *channel TSRMLS_DC) {
     efree(const_cast<char*>(SG(request_info).requestvar));      \
     SG(request_info).requestvar = nullptr;                      \
   }
+#define CHECK_REQUEST_INFO(requestvar)                                  \
+  if (SG(request_info).requestvar) {                                    \
+    NPE_ERROR("OOPS! " #requestvar " is set!");                         \
+    SG(request_info).requestvar = nullptr;                              \
+  }
   SET_REQUEST_INFO("REQUEST_METHOD", request_method);
   SET_REQUEST_INFO("QUERY_STRING", query_string);
   SET_REQUEST_INFO("PATH_TRANSLATED", path_translated);
   SET_REQUEST_INFO("REQUEST_URI", request_uri);
+  SET_REQUEST_INFO("HTTP_COOKIE", cookie_data);
   // xxx set proto_num ?
   // xxx set cookie_data ?
   server_vars_.clear();  // We don't need to keep this around any more.
@@ -148,8 +154,16 @@ void PhpRequestWorker::AfterExecute(TSRMLS_D) {
   FREE_REQUEST_INFO(query_string);
   FREE_REQUEST_INFO(path_translated);
   FREE_REQUEST_INFO(request_uri);
+  FREE_REQUEST_INFO(cookie_data);
   php_request_shutdown(nullptr);
   TRACE("< PhpRequestWorker");
+}
+void PhpRequestWorker::CheckRequestInfo(TSRMLS_D) {
+  CHECK_REQUEST_INFO(request_method);
+  CHECK_REQUEST_INFO(query_string);
+  CHECK_REQUEST_INFO(path_translated);
+  CHECK_REQUEST_INFO(request_uri);
+  CHECK_REQUEST_INFO(cookie_data);
 }
 
 // Executed when the async work is complete.
