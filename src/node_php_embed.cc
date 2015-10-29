@@ -31,6 +31,8 @@ using node_php_embed::OwnershipType;
 using node_php_embed::PhpRequestWorker;
 using node_php_embed::Value;
 using node_php_embed::ZVal;
+using node_php_embed::node_php_jsbuffer;
+using node_php_embed::node_php_jsobject_call_method;
 
 static void node_php_embed_ensure_init(void);
 
@@ -137,6 +139,46 @@ static void node_php_embed_send_header(sapi_header_struct *sapi_header,
   }
   zval_dtor(&buffer);
   TRACE("<");
+}
+
+static int node_php_embed_read_post(char *buffer, uint count_bytes TSRMLS_DC) {
+  // Invoke stream.read with a PHP "JsWait" callback, which causes PHP
+  // to block until the callback is handled.
+  TRACE(">");
+  // Fetch the MapperChannel for this thread.
+  PhpRequestWorker *worker = NODE_PHP_EMBED_G(worker);
+  MapperChannel *channel = NODE_PHP_EMBED_G(channel);
+  if (!worker) { return 0; /* we're in module shutdown, no request any more */ }
+  ZVal stream{ZEND_FILE_LINE_C}, retval{ZEND_FILE_LINE_C};
+  worker->GetStream().ToPhp(channel, stream TSRMLS_CC);
+  // Use plain zval to avoid allocating copy of method name.
+  zval method; ZVAL_STRINGL(&method, "read", 4, 0);
+  zval size; ZVAL_LONG(&size, count_bytes);
+  // Create the special JsWait object.
+  zval wait; INIT_ZVAL(wait);
+  node_php_embed::node_php_jswait_create(&wait TSRMLS_CC);
+  zval *args[] = { &size, &wait };
+  // We can't use call_user_function yet because the PHP function caches
+  // are not properly set up.  Use the backdoor.
+  node_php_jsobject_call_method(stream.Ptr(), &method, 2, args,
+                                retval.Ptr(), retval.PtrPtr() TSRMLS_CC);
+  if (EG(exception)) {
+    NPE_ERROR("- exception caught (ignoring)");
+    zend_clear_exception(TSRMLS_C);
+    return 0;
+  }
+  zval_dtor(&wait);
+  // Transfer the data from the retval to the buffer
+  if (!(retval.IsObject() && Z_OBJCE_P(retval.Ptr()) == php_ce_jsbuffer)) {
+    NPE_ERROR("Return value was not buffer :(");
+    return 0;
+  }
+  node_php_jsbuffer *b = reinterpret_cast<node_php_jsbuffer *>
+    (zend_object_store_get_object(retval.Ptr() TSRMLS_CC));
+  assert(b->length <= count_bytes);
+  memcpy(buffer, b->data, b->length);
+  TRACEX("< (read %lu)", b->length);
+  return static_cast<int>(b->length);
 }
 
 static char * node_php_embed_read_cookies(TSRMLS_D) {
@@ -298,6 +340,7 @@ NAN_MODULE_INIT(ModuleInit) {
   php_embed_module.ub_write = node_php_embed_ub_write;
   php_embed_module.flush = node_php_embed_flush;
   php_embed_module.send_header = node_php_embed_send_header;
+  php_embed_module.read_post = node_php_embed_read_post;
   php_embed_module.read_cookies = node_php_embed_read_cookies;
   php_embed_module.register_server_variables =
     node_php_embed_register_server_variables;

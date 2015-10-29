@@ -88,21 +88,41 @@ void PhpRequestWorker::Execute(MapperChannel *channel TSRMLS_DC) {
     NPE_ERROR("OOPS! " #requestvar " is set!");                         \
     SG(request_info).requestvar = nullptr;                              \
   }
+  if (argc_ == 0) {
+    SG(sapi_headers).http_response_code = 200;
+  }
   SET_REQUEST_INFO("REQUEST_METHOD", request_method);
   SET_REQUEST_INFO("QUERY_STRING", query_string);
   SET_REQUEST_INFO("PATH_TRANSLATED", path_translated);
   SET_REQUEST_INFO("REQUEST_URI", request_uri);
   SET_REQUEST_INFO("HTTP_COOKIE", cookie_data);
-  // xxx set proto_num ?
-  // xxx set cookie_data ?
-  server_vars_.clear();  // We don't need to keep this around any more.
-
+  SET_REQUEST_INFO("HTTP_CONTENT_TYPE", content_type);
+  SG(request_info).content_length =
+    server_vars_.count("HTTP_CONTENT_LENGTH") ?
+    atol(server_vars_["HTTP_CONTENT_LENGTH"].c_str()) : 0;
+  // Unlike the other settings, proto_num needs to be set *after* we
+  // activate the new request.  Go figure.
+  int proto_num = 1000;
+  if (server_vars_.count("SERVER_PROTOCOL")) {
+    const char *sline = server_vars_["SERVER_PROTOCOL"].c_str();
+    if (strlen(sline) > 7 && strncmp(sline, "HTTP/1.", 7) == 0) {
+      proto_num = 1000 + (sline[7] - '0');
+    }
+  }
+  server_vars_.clear();  // We don't need to keep these around any more.
+  // SG(server_context) needs to be non-zero.  Believe it or not,
+  // this is what the php-cgi binary does:
+  SG(server_context) = reinterpret_cast<void*>(1);  // Sigh.
+  // The read_post callback gets executed by php_request_startup, and it
+  // will need access to the worker and channel, so set them up now.
+  NODE_PHP_EMBED_G(worker) = this;
+  NODE_PHP_EMBED_G(channel) = channel;
+  // Ok, *now* we can startup the request.
   if (php_request_startup(TSRMLS_C) == FAILURE) {
     Nan::ThrowError("can't create request");
     return;
   }
-  NODE_PHP_EMBED_G(worker) = this;
-  NODE_PHP_EMBED_G(channel) = channel;
+  SG(request_info).proto_num = proto_num;
   {
     ZVal source{ZEND_FILE_LINE_C}, result{ZEND_FILE_LINE_C};
     zend_first_try {
@@ -155,6 +175,7 @@ void PhpRequestWorker::AfterExecute(TSRMLS_D) {
   FREE_REQUEST_INFO(path_translated);
   FREE_REQUEST_INFO(request_uri);
   FREE_REQUEST_INFO(cookie_data);
+  FREE_REQUEST_INFO(content_type);
   php_request_shutdown(nullptr);
   TRACE("< PhpRequestWorker");
 }
@@ -164,6 +185,7 @@ void PhpRequestWorker::CheckRequestInfo(TSRMLS_D) {
   CHECK_REQUEST_INFO(path_translated);
   CHECK_REQUEST_INFO(request_uri);
   CHECK_REQUEST_INFO(cookie_data);
+  CHECK_REQUEST_INFO(content_type);
 }
 
 // Executed when the async work is complete.

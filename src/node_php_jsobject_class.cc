@@ -471,6 +471,21 @@ PHP_METHOD(JsObject, __invoke) {
   TRACE("<");
 }
 
+/* Backdoor invocation, for use in node_php_embed before the request has
+ * been started. */
+void node_php_embed::node_php_jsobject_call_method(
+    zval *object, zval *member, ulong argc, zval **argv,
+    zval *return_value, zval **return_value_ptr TSRMLS_DC) {
+  assert(Z_TYPE_P(object) == IS_OBJECT && Z_OBJCE_P(object) == php_ce_jsobject);
+  FETCH_OBJ("node_php_embed_call_method", object);
+  JsInvokeMsg msg(obj->channel, nullptr, true,  // Sync call
+                  obj->id, member, argc, argv TSRMLS_CC);
+  obj->channel->SendToJs(&msg, MessageFlags::SYNC TSRMLS_CC);
+  THROW_IF_EXCEPTION("JS exception thrown during node_php_embed_call_method"
+                     "of \"%*s\"", Z_STRLEN_P(member), Z_STRVAL_P(member));
+  msg.retval().ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
+}
+
 ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_toString_args, 0, 0, 0)
 ZEND_END_ARG_INFO()
 

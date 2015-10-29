@@ -1,4 +1,5 @@
 # php-embed x.x.x (not yet released)
+* Support passing cookies and POST data to PHP request.
 
 # php-embed 0.5.0 (2015-10-28)
 * Support server variables, headers, and query string

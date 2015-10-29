@@ -32,6 +32,14 @@ void node_php_jsobject_create(zval *res, MapperChannel *channel,
  * reference. */
 void node_php_jsobject_maybe_neuter(zval *o TSRMLS_DC);
 
+/* Export a method call backdoor to work around the fact that we want
+ * to call JS to get POST data before the request's function
+ * caches are properly set up. */
+void node_php_jsobject_call_method(zval *object, zval *member,
+                                   ulong argc, zval **argv,
+                                   zval *return_value, zval **return_value_ptr
+                                   TSRMLS_DC);
+
 }  // namespace node_php_embed
 
 extern zend_class_entry *php_ce_jsobject;
