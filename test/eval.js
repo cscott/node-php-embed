@@ -22,9 +22,9 @@ describe('Return values from PHP request', function() {
       v.should.equal('abc');
     });
   });
-  it.skip('should return wrapped PHP arrays', function() {
+  it('should return wrapped PHP arrays', function() {
     return php.request({ source: 'array("abc"=>"def")' }).then(function(v) {
-      v.should.equal({abc: 'def'});
+      (v instanceof php.PhpObject).should.be.true();
     });
   });
   it('should return wrapped PHP objects', function() {

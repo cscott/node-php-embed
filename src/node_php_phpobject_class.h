@@ -36,6 +36,8 @@ class PhpObject : public Nan::ObjectWrap {
   ~PhpObject() override;
 
   static NAN_METHOD(New);
+
+  // Property access
   v8::Local<v8::Value> Property(
       PropertyOp op, v8::Local<v8::String> property,
       v8::Local<v8::Value> newValue = v8::Local<v8::Value>());
@@ -44,6 +46,16 @@ class PhpObject : public Nan::ObjectWrap {
   static NAN_PROPERTY_ENUMERATOR(PropertyEnumerate);
   static NAN_PROPERTY_DELETER(PropertyDelete);
   static NAN_PROPERTY_QUERY(PropertyQuery);
+
+  // Method invocation
+  static void MethodThunk(const Nan::FunctionCallbackInfo<v8::Value>& info);
+  void MethodThunk_(v8::Local<v8::String> method,
+                   const Nan::FunctionCallbackInfo<v8::Value>& info);
+
+  // PHP-side array access
+  static void ArrayOp(PhpObjectMapper *m, PropertyOp op,
+                      const ZVal &arr, const ZVal &name, const ZVal &value,
+                      Value *retval, Value *exception TSRMLS_DC);
 
   // Stash away the constructor's template for later use.
   static inline Nan::Persistent<v8::FunctionTemplate> & cons_template() {
@@ -57,6 +69,7 @@ class PhpObject : public Nan::ObjectWrap {
   }
   // Messages (which should have access to PropertyOp)
   class PhpPropertyMsg;
+  class PhpInvokeMsg;
 
   // Members
   MapperChannel *channel_;

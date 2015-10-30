@@ -204,7 +204,7 @@ describe('Wrapped PHP objects accessed from JavaScript', function() {
         v.should.equal(true);
       });
     });
-    it.skip('methods', function() {
+    it('methods', function() {
       return test(function(c) {
         return typeof (c.displayVar) === 'function';
       }).spread(function(v) {
@@ -225,7 +225,7 @@ describe('Wrapped PHP objects accessed from JavaScript', function() {
         v.should.equal(true);
       });
     });
-    it.skip('built-in __call method', function() {
+    it('built-in __call method', function() {
       return test(function(c) {
         return typeof (c.__call) === 'function';
       }).spread(function(v) {
@@ -267,10 +267,10 @@ describe('Wrapped PHP objects accessed from JavaScript', function() {
         out.should.equal('__set\n__get\n');
       });
     });
-    it.skip('private properties', function() {
+    it('private properties', function() {
       return test(function(c) {
         c.$priv = 'really?';
-        return c.getPriv(); // XXX JS->PHP method calls not implemented yet
+        return c.getPriv();
       }).spread(function(v, out) {
         v.should.equal('private');
       });
@@ -363,10 +363,10 @@ describe('Wrapped PHP objects accessed from JavaScript', function() {
         out.should.equal('__unset\n__get\n');
       });
     });
-    it.skip('private properties', function() {
+    it('private properties', function() {
       return test(function(c) {
         delete c.$priv;
-        return c.getPriv(); // XXX JS->PHP method calls not implemented yet
+        return c.getPriv();
       }).spread(function(v, out) {
         v.should.equal('private');
       });
@@ -406,7 +406,7 @@ describe('Wrapped PHP objects accessed from JavaScript', function() {
         v.should.equal(true);
       });
     });
-    it.skip('methods (should ignore delete)', function() {
+    it('methods (should ignore delete)', function() {
       return test(function(c) {
         delete c.displayVar;
         // Note: should discard the delete.
@@ -415,7 +415,7 @@ describe('Wrapped PHP objects accessed from JavaScript', function() {
         v.should.equal(true);
       });
     });
-    it.skip('built-in __call method (should ignore set)', function() {
+    it('built-in __call method (should ignore set)', function() {
       return test(function(c) {
         delete c.__call;
         // Note: should discard the delete.

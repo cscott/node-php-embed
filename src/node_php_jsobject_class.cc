@@ -344,7 +344,7 @@ class JsInvokeMsg : public MessageToJs {
         argc_(argc), argv_(Value::NewArray(m, argc, argv TSRMLS_CC)) {
     object_.SetJsObject(objId);
   }
-  virtual ~JsInvokeMsg() { delete[] argv_; }
+  ~JsInvokeMsg() override { delete[] argv_; }
 
  protected:
   void InJs(JsObjectMapper *m) override {

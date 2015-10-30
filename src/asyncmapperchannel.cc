@@ -96,10 +96,19 @@ objid_t AsyncMapperChannel::ClearAllJsIds() {
 
 // Map PHP object to an index.
 objid_t AsyncMapperChannel::IdForPhpObj(zval *z) {
-  assert(Z_TYPE_P(z) == IS_OBJECT);
-  zend_object_handle handle = Z_OBJ_HANDLE_P(z);
-  if (php_obj_to_id_.count(handle)) {
-    return php_obj_to_id_.at(handle);
+  assert(Z_TYPE_P(z) == IS_OBJECT || Z_TYPE_P(z) == IS_ARRAY);
+  zend_object_handle handle;
+  if (Z_TYPE_P(z) == IS_OBJECT) {
+    // Object identify is based on an object handle.
+    handle = Z_OBJ_HANDLE_P(z);
+    if (php_obj_to_id_.count(handle)) {
+      return php_obj_to_id_.at(handle);
+    }
+  } else {
+    // Array values are identified with their zval.
+    if (php_arr_to_id_.count(z)) {
+      return php_arr_to_id_.at(z);
+    }
   }
 
   objid_t id = NewId();
@@ -107,7 +116,11 @@ objid_t AsyncMapperChannel::IdForPhpObj(zval *z) {
   // XXX Should we clone/separate z?
   Z_ADDREF_P(z);
   php_obj_list_[id] = z;
-  php_obj_to_id_[handle] = id;
+  if (Z_TYPE_P(z) == IS_OBJECT) {
+    php_obj_to_id_[handle] = id;
+  } else {
+    php_arr_to_id_[z] = id;
+  }
   return id;
 }
 

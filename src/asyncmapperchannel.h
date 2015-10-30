@@ -74,6 +74,7 @@ class AsyncMapperChannel : public MapperChannel {
   // PHP Object mapping
   // Read/writable only from PHP thread.
   std::unordered_map<zend_object_handle, objid_t> php_obj_to_id_;
+  std::unordered_map<zval*, objid_t> php_arr_to_id_;
   std::vector<zval*> php_obj_list_;
 
   // Ids are allocated from both threads, so mutex is required.

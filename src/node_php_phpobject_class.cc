@@ -5,6 +5,8 @@
 #include "src/node_php_phpobject_class.h"
 
 #include <cassert>
+#include <cctype>
+#include <vector>
 
 #include "nan.h"
 
@@ -161,9 +163,15 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
     ZVal value{ZEND_FILE_LINE_C};
 
     obj_.ToPhp(m, obj TSRMLS_CC); name_.ToPhp(m, zname TSRMLS_CC);
-    assert(obj.IsObject() && zname.IsString());
+    assert(obj.IsObject() || obj.IsArray());
+    assert(zname.IsString());
     if (!value_.IsEmpty()) {
       value_.ToPhp(m, value TSRMLS_CC);
+    }
+    // Arrays are handled in a separate method (but the ZVals here will
+    // handle the memory management for us).
+    if (obj.IsArray()) {
+        return ArrayInPhp(m, obj, zname, value TSRMLS_CC);
     }
     const char *cname = Z_STRVAL_P(*zname);
     uint cname_len = Z_STRLEN_P(*zname);
@@ -220,10 +228,9 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
             // Fake __call implementation
             // If there's an actual PHP __call, then you'd have to invoke
             // it as "__Call" or else use `obj.__call("__call", ...)`
-
-            // XXX make a PHP closure and return it.
+            retval_.SetMethodThunk();
           } else {
-            // XXX return a PHP closure for this method invocation
+            retval_.SetMethodThunk();
           }
         }
       } else if (op_ == PropertyOp::QUERY) {
@@ -232,6 +239,7 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
       } else if (op_ == PropertyOp::SETTER) {
         // Lie: methods are read-only, don't allow setting this property.
         retval_.Set(m, *value TSRMLS_CC);
+        retval_.TakeOwnership();
       } else if (op_ == PropertyOp::DELETER) {
         // Can't delete methods.
         retval_.SetBool(false);  // "property found here, but not deletable"
@@ -259,6 +267,7 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
             retval_.SetEmpty();
           } else {
             retval_.Set(m, php_value TSRMLS_CC);
+            retval_.TakeOwnership();
             /* We don't own the reference to php_value... unless the
              * returned refcount was 0, in which case the below code
              * will free it. */
@@ -274,6 +283,7 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
           zend_call_method_with_1_params(obj.PtrPtr(), ce, nullptr, "__get",
                                          &php_value, zname.Ptr());
           retval_.Set(m, php_value TSRMLS_CC);
+          retval_.TakeOwnership();
           zval_ptr_dtor(&php_value);
         } else {
           retval_.SetEmpty();
@@ -287,6 +297,7 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
           zend_update_property(scope, obj.Ptr(), cname, cname_len,
                                  value.Ptr() TSRMLS_CC);
           retval_.Set(m, value.Ptr() TSRMLS_CC);
+          retval_.TakeOwnership();
         } else if (
             zend_hash_find(&ce->function_table, "__set", 6,
                            reinterpret_cast<void**>(&method_ptr)) == SUCCESS
@@ -297,6 +308,7 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
             (obj.PtrPtr(), ce, nullptr, "__set",
              &php_value, zname.Ptr(), value.Ptr());
           retval_.Set(m, value.Ptr() TSRMLS_CC);
+          retval_.TakeOwnership();
           zval_ptr_dtor(&php_value);
         } else if (property_info) {
           // It's a property, but not a public one.
@@ -324,6 +336,7 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
                                  value.Ptr() TSRMLS_CC);
           }
           retval_.Set(m, value.Ptr() TSRMLS_CC);
+          retval_.TakeOwnership();
         }
       } else if (op_ == PropertyOp::QUERY) {
         const zend_object_handlers *h = Z_OBJ_HT_P(obj.Ptr());
@@ -367,6 +380,83 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
       }
     }
   }
+  void ArrayInPhp(PhpObjectMapper *m, const ZVal &obj, const ZVal &name,
+                  const ZVal &value TSRMLS_DC) {
+    const char *cname = Z_STRVAL_P(name.Ptr());
+    uint cname_len = Z_STRLEN_P(name.Ptr());
+    // Length is special
+    if (cname_len == 6 || 0 == strcmp(cname, "length")) {
+      if (op_ == PropertyOp::QUERY) {
+        // Length is not enumerable and not configurable, but *is* writable.
+        retval_.SetInt(v8::DontEnum|v8::DontDelete);
+      } else if (op_ == PropertyOp::GETTER) {
+        retval_.SetInt(0);  // XXX implement me
+      } else if (op_ == PropertyOp::SETTER) {
+        // XXX implement me
+        retval_.Set(m, value TSRMLS_CC);
+        retval_.TakeOwnership();
+      } else if (op_ == PropertyOp::DELETER) {
+        // Can't delete the length property.
+        retval_.SetBool(false);  // "property found here, but not deletable"
+      } else {
+        assert(false);
+      }
+    }
+    // All-numeric keys are special
+    bool alldigits = (cname_len > 0);
+    for (uint i = 0; i < cname_len; i++) {
+      if (!isdigit(cname[i])) {
+        alldigits = false;
+        break;
+      }
+    }
+    if (alldigits) {
+      return PhpObject::ArrayOp(m, op_, obj, name, value,
+                                &retval_, &exception_ TSRMLS_CC);
+    }
+    // Special Map-like methods
+    bool map_method = false;
+    switch (cname_len) {
+    case 3:
+      map_method =
+        (0 == strcmp(cname, "get") ||
+         0 == strcmp(cname, "has") ||
+         0 == strcmp(cname, "set"));
+      break;
+    case 4:
+      map_method = (0 == strcmp(cname, "size"));
+      break;
+    case 6:
+      map_method = (0 == strcmp(cname, "delete"));
+      break;
+    default:
+      break;
+    }
+    if (map_method) {
+      if (op_ == PropertyOp::QUERY) {
+        // Methods are not enumerable
+        retval_.SetInt(v8::ReadOnly|v8::DontEnum|v8::DontDelete);
+      } else if (op_ == PropertyOp::GETTER) {
+        retval_.SetMethodThunk();
+      } else if (op_ == PropertyOp::SETTER) {
+        // Lie: methods are read-only, don't allow setting this property.
+        retval_.Set(m, value TSRMLS_CC);
+        retval_.TakeOwnership();
+      } else if (op_ == PropertyOp::DELETER) {
+        // Can't delete methods.
+        retval_.SetBool(false);  // "property found here, but not deletable"
+      } else {
+        assert(false);
+      }
+    }
+    // None of the above.
+    if (op_ == PropertyOp::SETTER) {
+      retval_.Set(m, value TSRMLS_CC);  // Lie
+      retval_.TakeOwnership();
+    } else {
+      retval_.SetEmpty();  // "Not here, keep looking."
+    }
+  }
 
  private:
   PropertyOp op_;
@@ -403,10 +493,187 @@ v8::Local<v8::Value> PhpObject::Property(PropertyOp op,
   channel_->SendToPhp(&msg, MessageFlags::SYNC);
   THROW_IF_EXCEPTION("PHP exception thrown during property access",
                      v8::Local<v8::Value>());
-  if (!msg.retval().IsEmpty()) {
+  if (msg.retval().IsMethodThunk()) {
+    // Create a method thunk
+    v8::Local<v8::Array> data = Nan::New<v8::Array>(2);
+    Nan::Set(data, 0, handle()).FromJust();
+    Nan::Set(data, 1, property).FromJust();
+    return scope.Escape(Nan::New<v8::Function>(MethodThunk, data));
+  } else if (!msg.retval().IsEmpty()) {
     return scope.Escape(msg.retval().ToJs(channel_));
   }
   return scope.Escape(v8::Local<v8::Value>());
+}
+
+class PhpObject::PhpInvokeMsg : public MessageToPhp {
+ public:
+  PhpInvokeMsg(ObjectMapper *m, Nan::Callback *callback, bool is_sync,
+               objid_t obj, v8::Local<v8::String> method,
+               const Nan::FunctionCallbackInfo<v8::Value> &info)
+      : MessageToPhp(m, callback, is_sync), method_(m, method),
+        argc_(info.Length()), argv_(Value::NewArray(m, info)) {
+    obj_.SetJsObject(obj);
+  }
+  ~PhpInvokeMsg() override { delete[] argv_; }
+
+ protected:
+  void InPhp(PhpObjectMapper *m TSRMLS_DC) override {
+    ZVal obj{ZEND_FILE_LINE_C}, method{ZEND_FILE_LINE_C};
+    obj_.ToPhp(m, obj TSRMLS_CC);
+    method_.ToPhp(m, method TSRMLS_CC);
+    std::vector<ZVal> args;
+    args.reserve(argc_);
+    for (int i = 0; i < argc_; i++) {
+      args.emplace_back(ZEND_FILE_LINE_C);
+      argv_[i].ToPhp(m, args[i] TSRMLS_CC);
+    }
+    assert(obj.IsObject() || obj.IsArray());
+    assert(method.IsString());
+    // Arrays are handled in a separate method (but the ZVals here will
+    // handle the memory management for us).
+    if (obj.IsArray()) {
+      return ArrayInPhp(m, obj, method, args.size(), args.data() TSRMLS_CC);
+    }
+    ZVal retval{ZEND_FILE_LINE_C};
+    // If the method name is __call, then shift the new method name off
+    // the front of the argument array.
+    zval *name = method.Ptr();
+    int first = 0;
+    if (Z_STRLEN_P(name) == 6 && 0 == strcmp(Z_STRVAL_P(name), "__call")) {
+      if (argc_ == 0 || !args[0].IsString()) {
+        zend_throw_exception_ex(
+          zend_exception_get_default(TSRMLS_C), 0 TSRMLS_CC,
+          "__call needs at least one argument, a string");
+        return;
+      }
+      name = args[0].Ptr(); first = 1;
+    }
+    std::vector<zval*> nargs(argc_ - first);
+    for (int i = first; i < argc_; i++) {
+      nargs[i - first] = args[i].Ptr();
+    }
+    // Ok, now actually invoke that PHP method!
+    call_user_function(EG(function_table), obj.PtrPtr(), name,
+                       retval.Ptr(), nargs.size(), nargs.data() TSRMLS_CC);
+    if (EG(exception)) {
+      exception_.Set(m, EG(exception) TSRMLS_CC);
+      zend_clear_exception(TSRMLS_C);
+    } else {
+      retval_.Set(m, retval.Ptr() TSRMLS_CC);
+      retval_.TakeOwnership();  // This will outlive scope of `retval`
+    }
+  }
+  void ArrayInPhp(PhpObjectMapper *m, const ZVal &arr, const ZVal &name,
+                  int argc, ZVal* argv TSRMLS_DC) {
+#define THROW_IF_BAD_ARGS(meth, n)                                       \
+    if (argc < n) {                                                      \
+      zend_throw_exception_ex(                                           \
+        zend_exception_get_default(TSRMLS_C), 0 TSRMLS_CC,               \
+        "%s needs at least %d argument%s", meth, n, (n > 1) ? "s" : ""); \
+      return;                                                            \
+    }                                                                    \
+    /* XXX convert to string, rather than bailing here? */               \
+    if (!argv[0].IsString()) {                                           \
+      zend_throw_exception_ex(                                           \
+        zend_exception_get_default(TSRMLS_C), 0 TSRMLS_CC,               \
+        "first argument must be a string");                              \
+      return;                                                            \
+    }
+    const char *cname = Z_STRVAL_P(name.Ptr());
+    uint cname_len = Z_STRLEN_P(name.Ptr());
+    // Special Map-like methods
+    switch (cname_len) {
+    case 3:
+      if (0 == strcmp(cname, "get")) {
+        THROW_IF_BAD_ARGS("get", 1);
+        ZVal ignore{ZEND_FILE_LINE_C};
+        return PhpObject::ArrayOp(m, PropertyOp::GETTER, arr, argv[0], ignore,
+                                  &retval_, &exception_ TSRMLS_CC);
+      }
+      if (0 == strcmp(cname, "has")) {
+        THROW_IF_BAD_ARGS("has", 1);
+        ZVal ignore{ZEND_FILE_LINE_C};
+        PhpObject::ArrayOp(m, PropertyOp::QUERY, arr, argv[0], ignore,
+                           &retval_, &exception_ TSRMLS_CC);
+        retval_.SetBool(!retval_.IsEmpty());
+        return;
+      }
+      if (0 == strcmp(cname, "set")) {
+        THROW_IF_BAD_ARGS("set", 2);
+        return PhpObject::ArrayOp(m, PropertyOp::SETTER, arr, argv[0], argv[1],
+                                  &retval_, &exception_ TSRMLS_CC);
+      }
+      break;
+    case 4:
+      if (0 == strcmp(cname, "size")) {
+        retval_.SetInt(0);  // XXX
+        return;
+      }
+      break;
+    case 6:
+      if (0 == strcmp(cname, "delete")) {
+        THROW_IF_BAD_ARGS("delete", 1);
+        ZVal ignore{ZEND_FILE_LINE_C};
+        PhpObject::ArrayOp(m, PropertyOp::DELETER, arr, argv[0], ignore,
+                           &retval_, &exception_ TSRMLS_CC);
+        retval_.SetBool(!retval_.IsEmpty());
+        return;
+      }
+      break;
+    default:
+      break;
+    }
+    // Shouldn't get here.
+    zend_throw_exception_ex(
+      zend_exception_get_default(TSRMLS_C), 0 TSRMLS_CC,
+      "bad method name");
+  }
+
+ private:
+  Value obj_;
+  Value method_;
+  int argc_;
+  Value *argv_;
+};
+
+
+void PhpObject::MethodThunk(const Nan::FunctionCallbackInfo<v8::Value>& info) {
+  v8::Local<v8::Array> data = info.Data().As<v8::Array>();
+  v8::Local<v8::Object> obj =
+    Nan::Get(data, 0).ToLocalChecked().As<v8::Object>();
+  v8::Local<v8::String> method =
+    Nan::Get(data, 1).ToLocalChecked().As<v8::String>();
+  PhpObject *p = Unwrap<PhpObject>(obj);
+  // Do the rest in a non-static method.
+  return p->MethodThunk_(method, info);
+}
+void PhpObject::MethodThunk_(v8::Local<v8::String> method,
+                             const Nan::FunctionCallbackInfo<v8::Value>& info) {
+  if (id_ == 0) {
+    return Nan::ThrowError("Invocation after PHP request has completed.");
+  }
+  PhpInvokeMsg msg(channel_, nullptr, true,  // Sync call.
+                   id_, method, info);
+  channel_->SendToPhp(&msg, MessageFlags::SYNC);
+  THROW_IF_EXCEPTION("PHP exception thrown during method invocation", /* */);
+  info.GetReturnValue().Set(msg.retval().ToJs(channel_));
+}
+
+void PhpObject::ArrayOp(PhpObjectMapper *m, PropertyOp op,
+                        const ZVal &arr, const ZVal &name, const ZVal &value,
+                        Value *retval, Value *exception TSRMLS_DC) {
+  if (op == PropertyOp::QUERY) {
+    retval->SetEmpty();  // XXX IMPLEMENT ME
+  } else if (op == PropertyOp::GETTER) {
+    retval->SetEmpty();  // XXX IMPLEMENT ME
+  } else if (op == PropertyOp::SETTER) {
+    retval->Set(m, value.Ptr() TSRMLS_CC);  // XXX IMPLEMENT ME
+    retval->TakeOwnership();
+  } else if (op == PropertyOp::DELETER) {
+    retval->SetEmpty();  // XXX IMPLEMENT ME
+  } else {
+    assert(false);
+  }
 }
 
 }  // namespace node_php_embed

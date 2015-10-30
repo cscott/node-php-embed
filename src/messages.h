@@ -99,7 +99,7 @@ class MessageToPhp : public Message {
       : Message(m), callback_(callback), is_sync_(is_sync) {
     assert(is_sync ? !callback : true);
   }
-  virtual ~MessageToPhp() {
+  ~MessageToPhp() override {
     if (callback_) { delete callback_; }
   }
   inline bool IsSync() { return is_sync_; }
@@ -110,6 +110,7 @@ class MessageToPhp : public Message {
       InPhp(mapper_ TSRMLS_CC);
       if (EG(exception)) {
         exception_.Set(mapper_, EG(exception) TSRMLS_CC);
+        exception_.TakeOwnership();
         zend_clear_exception(TSRMLS_C);
       }
     }
@@ -118,7 +119,7 @@ class MessageToPhp : public Message {
       const char *msg = (!mapper_->IsValid()) ? "shutdown" :
         (!IsEmptyRetvalOk()) ? "no return value" : nullptr;
       if (msg) {
-        exception_.SetString(msg, strlen(msg));
+        exception_.SetConstantString(msg);
       }
     }
     // Now send response back to JS side.
@@ -196,7 +197,7 @@ class MessageToJs : public Message {
         stashedChannel_(nullptr) {
     assert(is_sync ? php_callback_.IsNull() : true);
   }
-  virtual ~MessageToJs() {}
+  ~MessageToJs() override { }
   inline bool IsSync() { return is_sync_; }
   // This is the "request" portion of the message, executed on the
   // JS side and sending its result back to PHP.

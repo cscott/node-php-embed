@@ -73,8 +73,14 @@ class ZVal {
       INIT_ZVAL(*zvalp);
     }
   }
+  explicit ZVal(ZVal &&other)  // NOLINT(build/c++11)
+      : zvalp(other.zvalp), transferred_(other.transferred_) {
+    other.zvalp = NULL;
+  }
   virtual ~ZVal() {
-    if (transferred_) {
+    if (!zvalp) {
+      return;  // Move constructor was used
+    } else if (transferred_) {
       efree(zvalp);
     } else {
       zval_ptr_dtor(&zvalp);
@@ -145,7 +151,7 @@ class ZVal {
 
   zval *zvalp;
   bool transferred_;
-  NAN_DISALLOW_ASSIGN_COPY_MOVE(ZVal)
+  NAN_DISALLOW_ASSIGN_COPY(ZVal)
 };
 
 /* A poor man's tagged union, so that we can stack allocate messages
@@ -387,6 +393,21 @@ class Value {
       node_php_jswait_create(return_value TSRMLS_CC);
     }
   };
+  class MethodThunk : public Base {
+   public:
+    MethodThunk() { }
+    const char *TypeString() const override { return "MethodThunk"; }
+    v8::Local<v8::Value> ToJs(JsObjectMapper *m) const override {
+      Nan::EscapableHandleScope scope;
+      assert(false); /* should never reach here */
+      return scope.Escape(Nan::Undefined());
+    }
+    void ToPhp(PhpObjectMapper *m, zval *return_value,
+                       zval **return_value_ptr TSRMLS_DC) const override {
+      assert(false); /* should never reach here */
+      RETURN_NULL();
+    }
+  };
 
  public:
   Value() : type_(VALUE_EMPTY), empty_(0) { }
@@ -405,6 +426,14 @@ class Value {
     Value *result = new Value[argc];
     for (int i = 0; i < argc; i++) {
       result[i].Set(m, argv[i] TSRMLS_CC);
+    }
+    return result;
+  }
+  static Value *NewArray(JsObjectMapper *m,
+                         const Nan::FunctionCallbackInfo<v8::Value> &info) {
+    Value *result = new Value[info.Length()];
+    for (int i = 0; i < info.Length(); i++) {
+      result[i].Set(m, info[i]);
     }
     return result;
   }
@@ -436,10 +465,10 @@ class Value {
     // Null for all other object types.
     SetNull();
   }
-  inline void Set(PhpObjectMapper *m, ZVal *z TSRMLS_DC) {
-    Set(m, z->Ptr() TSRMLS_CC);
+  inline void Set(PhpObjectMapper *m, const ZVal &z TSRMLS_DC) {
+    Set(m, z.Ptr() TSRMLS_CC);
   }
-  void Set(PhpObjectMapper *m, zval *v TSRMLS_DC) {
+  void Set(PhpObjectMapper *m, const zval *v TSRMLS_DC) {
     switch (Z_TYPE_P(v)) {
     default:
     case IS_NULL:
@@ -483,9 +512,9 @@ class Value {
       }
       SetPhpObject(m, v);
       return;
-      /*
     case IS_ARRAY:
-      */
+      SetPhpObject(m, v);
+      return;
     }
   }
   void SetEmpty() {
@@ -541,8 +570,8 @@ class Value {
     type_ = VALUE_JSOBJ;
     new (&jsobj_) JsObj(id);
   }
-  void SetPhpObject(PhpObjectMapper *m, zval *o) {
-    SetPhpObject(m->IdForPhpObj(o));
+  void SetPhpObject(PhpObjectMapper *m, const zval *o) {
+    SetPhpObject(m->IdForPhpObj(const_cast<zval*>(o)));
   }
   void SetPhpObject(objid_t id) {
     PerhapsDestroy();
@@ -554,10 +583,15 @@ class Value {
     type_ = VALUE_WAIT;
     new (&wait_) Wait();
   }
+  void SetMethodThunk() {
+    PerhapsDestroy();
+    type_ = VALUE_METHOD_THUNK;
+    new (&method_thunk_) MethodThunk();
+  }
 
   // Helper.
   void SetConstantString(const char *str) {
-      SetString(str, strlen(str) + 1);
+      SetString(str, strlen(str));
   }
 
   v8::Local<v8::Value> ToJs(JsObjectMapper *m) const {
@@ -577,6 +611,9 @@ class Value {
   }
   inline bool IsWait() const {
     return (type_ == VALUE_WAIT);
+  }
+  inline bool IsMethodThunk() const {
+    return (type_ == VALUE_METHOD_THUNK);
   }
   bool AsBool() const {
     switch (type_) {
@@ -621,13 +658,13 @@ class Value {
     VALUE_EMPTY, VALUE_NULL, VALUE_BOOL, VALUE_INT, VALUE_DOUBLE,
     VALUE_STR, VALUE_OSTR, VALUE_BUF, VALUE_OBUF,
     VALUE_JSOBJ, VALUE_PHPOBJ,
-    VALUE_WAIT
+    VALUE_WAIT, VALUE_METHOD_THUNK,
   } type_;
   union {
     int empty_; Null null_; Bool bool_; Int int_; Double double_;
     Str str_; OStr ostr_; Buf buf_; OBuf obuf_;
     JsObj jsobj_; PhpObj phpobj_;
-    Wait wait_;
+    Wait wait_; MethodThunk method_thunk_;
   };
 
   const Base &AsBase() const {
@@ -656,6 +693,8 @@ class Value {
       return phpobj_;
     case VALUE_WAIT:
       return wait_;
+    case VALUE_METHOD_THUNK:
+      return method_thunk_;
     }
   }
   NAN_DISALLOW_ASSIGN_COPY_MOVE(Value)
