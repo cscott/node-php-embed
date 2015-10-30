@@ -21,6 +21,7 @@ class MapperChannel;
 class PhpObject : public Nan::ObjectWrap {
  public:
   enum class PropertyOp { GETTER, SETTER, QUERY, DELETER };
+  enum class EnumOp { ALL, ONLY_PROPERTY, ONLY_INDEX };
   // Register this class with Node.
   static NAN_MODULE_INIT(Init);
   // Create a new V8 wrapper corresponding to a particular PHP object id.
@@ -37,15 +38,27 @@ class PhpObject : public Nan::ObjectWrap {
 
   static NAN_METHOD(New);
 
-  // Property access
+  // Property access and enumeration
+  v8::Local<v8::Array> Enumerate(EnumOp which);
   v8::Local<v8::Value> Property(
       PropertyOp op, v8::Local<v8::String> property,
-      v8::Local<v8::Value> newValue = v8::Local<v8::Value>());
+      v8::Local<v8::Value> new_value = v8::Local<v8::Value>(),
+      bool is_index = false);
+  // Convenience wrapper to do the index->string conversion.
+  v8::Local<v8::Value> Property(
+      PropertyOp op, uint32_t index,
+      v8::Local<v8::Value> new_value = v8::Local<v8::Value>());
+
   static NAN_PROPERTY_GETTER(PropertyGet);
   static NAN_PROPERTY_SETTER(PropertySet);
   static NAN_PROPERTY_ENUMERATOR(PropertyEnumerate);
   static NAN_PROPERTY_DELETER(PropertyDelete);
   static NAN_PROPERTY_QUERY(PropertyQuery);
+  static NAN_INDEX_GETTER(IndexGet);
+  static NAN_INDEX_SETTER(IndexSet);
+  static NAN_INDEX_ENUMERATOR(IndexEnumerate);
+  static NAN_INDEX_DELETER(IndexDelete);
+  static NAN_INDEX_QUERY(IndexQuery);
 
   // Method invocation
   static void MethodThunk(const Nan::FunctionCallbackInfo<v8::Value>& info);
@@ -56,6 +69,8 @@ class PhpObject : public Nan::ObjectWrap {
   static void ArrayOp(PhpObjectMapper *m, PropertyOp op,
                       const ZVal &arr, const ZVal &name, const ZVal &value,
                       Value *retval, Value *exception TSRMLS_DC);
+  static void ArrayEnum(PhpObjectMapper *m, EnumOp op, const ZVal &arr,
+                        Value *retval, Value *exception TSRMLS_DC);
 
   // Stash away the constructor's template for later use.
   static inline Nan::Persistent<v8::FunctionTemplate> & cons_template() {
@@ -68,8 +83,9 @@ class PhpObject : public Nan::ObjectWrap {
     return scope.Escape(Nan::GetFunction(t).ToLocalChecked());
   }
   // Messages (which should have access to PropertyOp)
-  class PhpPropertyMsg;
+  class PhpEnumerateMsg;
   class PhpInvokeMsg;
+  class PhpPropertyMsg;
 
   // Members
   MapperChannel *channel_;

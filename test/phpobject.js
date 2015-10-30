@@ -38,6 +38,14 @@ describe('Wrapped PHP objects accessed from JavaScript', function() {
     '      echo "__unset\n";',
     '      if ( $name == "v" ) { $this->var = "unset"; }',
     '    }',
+	'    public function __call( $name, $arguments ) {',
+	'      echo "__call\n";',
+	'      return $name;',
+	'    }',
+	'    public function __invoke( $x ) {',
+	'      echo "__invoke\n";',
+	'      return $x;',
+	'    }',
     '  }',
 	'  $c = $_SERVER["CONTEXT"];',
 	'  return $c->jsfunc(new SimpleClass(), new MagicClass());',
@@ -47,7 +55,7 @@ describe('Wrapped PHP objects accessed from JavaScript', function() {
     return php.request({ source: code, context: { jsfunc: f }, stream: out })
       .then(function(v) { return [v, out.toString()]; });
   };
-  // XXX should test magic methods.
+
   describe('should query', function() {
     it('properties', function() {
       return test(function(c) {
@@ -422,6 +430,26 @@ describe('Wrapped PHP objects accessed from JavaScript', function() {
         return typeof (c.__call) === 'function';
       }).spread(function(v) {
         v.should.equal(true);
+      });
+    });
+  });
+  describe('should call', function() {
+    it('magic methods', function() {
+      return test(function(c, m) {
+        // Note that `'foo' in m` returns false, so you can't
+        // directly invoke `m.foo('bar')`
+        return m.__call('foo', 'bar');
+      }).spread(function(v) {
+        v.should.equal('foo');
+      });
+    });
+  });
+  describe('should invoke', function() {
+    it.skip('magic methods', function() {
+      return test(function(c, m) {
+        return m('bar'); // XXX not yet implemented
+      }).spread(function(v) {
+        v.should.equal('bar');
       });
     });
   });

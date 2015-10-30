@@ -439,9 +439,11 @@ class JsInvokeMsg : public MessageToJs {
 // the PHP thread)
 ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_call_args, 0, 1/*return by ref*/, 1)
     ZEND_ARG_INFO(0, member)
-    ZEND_ARG_INFO(0, args)
+    ZEND_ARG_ARRAY_INFO(0, args, 0)
 ZEND_END_ARG_INFO()
 
+// XXX can't figure out how to pass arrays by reference instead of
+// by value.
 PHP_METHOD(JsObject, __call) {
   zval *member; zval *args;
   TRACE(">");
@@ -467,6 +469,11 @@ PHP_METHOD(JsObject, __call) {
   msg.retval().ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
   TRACE("<");
 }
+
+// I've tried setting the 'pass_rest_by_ref' parameter here to 1, but it
+// doesn't seem to apply.  Magic methods are magic, I guess.
+ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_invoke_args, 0, 1/*return by ref*/, 0)
+ZEND_END_ARG_INFO()
 
 PHP_METHOD(JsObject, __invoke) {
   TRACE(">");
@@ -661,7 +668,7 @@ static const zend_function_entry node_php_jsobject_methods[] = {
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
   PHP_ME(JsObject, __call, node_php_jsobject_call_args,
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
-  PHP_ME(JsObject, __invoke, nullptr,
+  PHP_ME(JsObject, __invoke, node_php_jsobject_invoke_args,
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
   PHP_ME(JsObject, __tostring, node_php_jsobject_tostring_args,
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)

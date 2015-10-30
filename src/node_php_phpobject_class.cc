@@ -5,7 +5,9 @@
 #include "src/node_php_phpobject_class.h"
 
 #include <cassert>
-#include <cctype>
+#define __STDC_FORMAT_MACROS  // Sometimes necessary to get PRIu32
+#include <cinttypes>  // For PRIu32
+#include <cstdio>  // For snprintf
 #include <vector>
 
 #include "nan.h"
@@ -21,6 +23,12 @@ extern "C" {
 
 #include "src/macros.h"
 #include "src/messages.h"
+
+// For some reason, travis still doesn't like PRIu32.:
+#ifndef PRIu32
+# warning "Your compiler seems to be broken."
+# define PRIu32 "u"
+#endif
 
 #define THROW_IF_EXCEPTION(fallback_msg, defaultValue)                  \
   do {                                                                  \
@@ -73,8 +81,13 @@ NAN_MODULE_INIT(PhpObject::Init) {
                                PhpObject::PropertySet,
                                PhpObject::PropertyQuery,
                                PhpObject::PropertyDelete,
-                               // XXX PropertyEnumerate is not yet implemented.
-                               0/*PhpObject::PropertyEnumerate*/);
+                               PhpObject::PropertyEnumerate);
+  Nan::SetIndexedPropertyHandler(tpl->InstanceTemplate(),
+                                 PhpObject::IndexGet,
+                                 PhpObject::IndexSet,
+                                 PhpObject::IndexQuery,
+                                 PhpObject::IndexDelete,
+                                 PhpObject::IndexEnumerate);
   Nan::Set(target, class_name, constructor());
 }
 
@@ -106,14 +119,29 @@ NAN_PROPERTY_GETTER(PhpObject::PropertyGet) {
   TRACEX("< %s", *Nan::Utf8String(property));
 }
 
+NAN_INDEX_GETTER(PhpObject::IndexGet) {
+  TRACEX("> [%" PRIu32 "]", index);
+  PhpObject *p = Unwrap<PhpObject>(info.Holder());
+  info.GetReturnValue().Set(p->Property(PropertyOp::GETTER, index));
+  TRACEX("< [%" PRIu32 "]", index);
+}
+
 NAN_PROPERTY_SETTER(PhpObject::PropertySet) {
   TRACEX("> %s", *Nan::Utf8String(property));
   // XXX for async access, it seems like we might be able to lie about
   // what the result of the Set operation is -- that is,
   // `(x = y) !== y`.  Perhaps `x = y` could resolve to a `Promise`?
+  // (or else v8 will just ignore our return value.)
   PhpObject *p = Unwrap<PhpObject>(info.Holder());
   info.GetReturnValue().Set(p->Property(PropertyOp::SETTER, property, value));
   TRACEX("< %s", *Nan::Utf8String(property));
+}
+
+NAN_INDEX_SETTER(PhpObject::IndexSet) {
+  TRACEX("> [%" PRIu32 "]", index);
+  PhpObject *p = Unwrap<PhpObject>(info.Holder());
+  info.GetReturnValue().Set(p->Property(PropertyOp::SETTER, index, value));
+  TRACEX("< [%" PRIu32 "]", index);
 }
 
 NAN_PROPERTY_DELETER(PhpObject::PropertyDelete) {
@@ -126,6 +154,16 @@ NAN_PROPERTY_DELETER(PhpObject::PropertyDelete) {
   TRACEX("< %s", *Nan::Utf8String(property));
 }
 
+NAN_INDEX_DELETER(PhpObject::IndexDelete) {
+  TRACEX("> [%" PRIu32 "]", index);
+  PhpObject *p = Unwrap<PhpObject>(info.Holder());
+  v8::Local<v8::Value> r = p->Property(PropertyOp::DELETER, index);
+  if (!r.IsEmpty()) {
+    info.GetReturnValue().Set(Nan::To<v8::Boolean>(r).ToLocalChecked());
+  }
+  TRACEX("< [%" PRIu32 "]", index);
+}
+
 NAN_PROPERTY_QUERY(PhpObject::PropertyQuery) {
   TRACEX("> %s", *Nan::Utf8String(property));
   PhpObject *p = Unwrap<PhpObject>(info.Holder());
@@ -136,16 +174,79 @@ NAN_PROPERTY_QUERY(PhpObject::PropertyQuery) {
   TRACEX("< %s", *Nan::Utf8String(property));
 }
 
+NAN_INDEX_QUERY(PhpObject::IndexQuery) {
+  TRACEX("> [%" PRIu32 "]", index);
+  PhpObject *p = Unwrap<PhpObject>(info.Holder());
+  v8::Local<v8::Value> r = p->Property(PropertyOp::QUERY, index);
+  if (!r.IsEmpty()) {
+    info.GetReturnValue().Set(Nan::To<v8::Integer>(r).ToLocalChecked());
+  }
+  TRACEX("< [%" PRIu32 "]", index);
+}
+
 NAN_PROPERTY_ENUMERATOR(PhpObject::PropertyEnumerate) {
-  assert(false);  // XXX unimplemented.
+  TRACE(">");
+  PhpObject *p = Unwrap<PhpObject>(info.Holder());
+  info.GetReturnValue().Set(p->Enumerate(EnumOp::ONLY_PROPERTY));
+  TRACE("<");
+}
+
+NAN_INDEX_ENUMERATOR(PhpObject::IndexEnumerate) {
+  TRACE(">");
+  PhpObject *p = Unwrap<PhpObject>(info.Holder());
+  info.GetReturnValue().Set(p->Enumerate(EnumOp::ONLY_INDEX));
+  TRACE("<");
+}
+
+class PhpObject::PhpEnumerateMsg : public MessageToPhp {
+ public:
+  PhpEnumerateMsg(ObjectMapper *m, Nan::Callback *callback, bool is_sync,
+                  EnumOp op, objid_t obj)
+      : MessageToPhp(m, callback, is_sync), op_(op) {
+    obj_.SetJsObject(obj);
+  }
+ protected:
+  void InPhp(PhpObjectMapper *m TSRMLS_DC) override {
+    ZVal obj{ZEND_FILE_LINE_C};
+
+    obj_.ToPhp(m, obj TSRMLS_CC);
+    assert(obj.IsObject() || obj.IsArray());
+    if (obj.IsArray()) {
+      return ArrayEnum(m, op_, obj, &retval_, &exception_ TSRMLS_CC);
+    }
+    // XXX unimplemented
+    retval_.SetArrayByValue(0, [](uint32_t idx, Value& v) { });
+  }
+ private:
+  Value obj_;
+  EnumOp op_;
+};
+
+v8::Local<v8::Array> PhpObject::Enumerate(EnumOp which) {
+  Nan::EscapableHandleScope scope;
+  if (id_ == 0) {
+    Nan::ThrowError("Access to PHP request after it has completed.");
+    return scope.Escape(v8::Local<v8::Array>());
+  }
+  PhpEnumerateMsg msg(channel_, nullptr, true,  // Sync call.
+                      which, id_);
+  channel_->SendToPhp(&msg, MessageFlags::SYNC);
+  THROW_IF_EXCEPTION("PHP exception thrown during property enumeration",
+                     v8::Local<v8::Array>());
+  if (!msg.retval().IsEmpty()) {
+    assert(msg.retval().IsArrayByValue());
+    return scope.Escape(msg.retval().ToJs(channel_).As<v8::Array>());
+  }
+  return scope.Escape(v8::Local<v8::Array>());
 }
 
 class PhpObject::PhpPropertyMsg : public MessageToPhp {
  public:
   PhpPropertyMsg(ObjectMapper *m, Nan::Callback *callback, bool is_sync,
                  PropertyOp op, objid_t obj, v8::Local<v8::String> name,
-                 v8::Local<v8::Value> value = v8::Local<v8::Value>())
-    : MessageToPhp(m, callback, is_sync), op_(op), name_(m, name) {
+                 v8::Local<v8::Value> value, bool is_index)
+    : MessageToPhp(m, callback, is_sync), op_(op), name_(m, name),
+      is_index_(is_index) {
     obj_.SetJsObject(obj);
     if (!value.IsEmpty()) {
       value_.Set(m, value);
@@ -171,7 +272,7 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
     // Arrays are handled in a separate method (but the ZVals here will
     // handle the memory management for us).
     if (obj.IsArray()) {
-        return ArrayInPhp(m, obj, zname, value TSRMLS_CC);
+      return ArrayInPhp(m, obj, zname, value TSRMLS_CC);
     }
     const char *cname = Z_STRVAL_P(*zname);
     uint cname_len = Z_STRLEN_P(*zname);
@@ -380,19 +481,41 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
       }
     }
   }
-  void ArrayInPhp(PhpObjectMapper *m, const ZVal &obj, const ZVal &name,
+  void ArrayInPhp(PhpObjectMapper *m, const ZVal &arr, const ZVal &name,
                   const ZVal &value TSRMLS_DC) {
+    assert(arr.IsArray());
+    HashTable *arrht = Z_ARRVAL_P(arr.Ptr());
     const char *cname = Z_STRVAL_P(name.Ptr());
     uint cname_len = Z_STRLEN_P(name.Ptr());
     // Length is special
-    if (cname_len == 6 || 0 == strcmp(cname, "length")) {
+    if (cname_len == 6 && 0 == strcmp(cname, "length")) {
       if (op_ == PropertyOp::QUERY) {
         // Length is not enumerable and not configurable, but *is* writable.
         retval_.SetInt(v8::DontEnum|v8::DontDelete);
       } else if (op_ == PropertyOp::GETTER) {
-        retval_.SetInt(0);  // XXX implement me
+        // Length property is "maximum index in hash", not "number of items"
+        retval_.SetInt(zend_hash_next_free_element(arrht));
       } else if (op_ == PropertyOp::SETTER) {
-        // XXX implement me
+        if (!value.IsLong()) {
+          // convert to int
+          const_cast<ZVal&>(value).Separate();
+          convert_to_long(value.Ptr());
+        }
+        if (value.IsLong() && Z_LVAL_P(value.Ptr()) >= 0) {
+          ulong nlen = Z_LVAL_P(value.Ptr());
+          ulong olen = zend_hash_next_free_element(arrht);
+          if (nlen < olen) {
+            // We have to iterate here, rather unfortunate.
+            // XXX We could look at zend_hash_num_elements() and
+            // iterate over the elements if num_elements < (olen - nlen)
+            for (ulong i = nlen; i < olen; i++) {
+              zend_hash_index_del(arrht, i);
+            }
+          }
+          // This is quite dodgy, since we're going to write the
+          // nNextFreeElement field directly.  Perhaps not portable!
+          arrht->nNextFreeElement = nlen;
+        }
         retval_.Set(m, value TSRMLS_CC);
         retval_.TakeOwnership();
       } else if (op_ == PropertyOp::DELETER) {
@@ -401,17 +524,11 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
       } else {
         assert(false);
       }
+      return;
     }
     // All-numeric keys are special
-    bool alldigits = (cname_len > 0);
-    for (uint i = 0; i < cname_len; i++) {
-      if (!isdigit(cname[i])) {
-        alldigits = false;
-        break;
-      }
-    }
-    if (alldigits) {
-      return PhpObject::ArrayOp(m, op_, obj, name, value,
+    if (is_index_) {
+      return PhpObject::ArrayOp(m, op_, arr, name, value,
                                 &retval_, &exception_ TSRMLS_CC);
     }
     // Special Map-like methods
@@ -424,7 +541,9 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
          0 == strcmp(cname, "set"));
       break;
     case 4:
-      map_method = (0 == strcmp(cname, "size"));
+      map_method =
+        (0 == strcmp(cname, "size") ||
+         0 == strcmp(cname, "keys"));
       break;
     case 6:
       map_method = (0 == strcmp(cname, "delete"));
@@ -448,6 +567,7 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
       } else {
         assert(false);
       }
+      return;
     }
     // None of the above.
     if (op_ == PropertyOp::SETTER) {
@@ -463,12 +583,21 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
   Value obj_;
   Value name_;
   Value value_;
+  bool is_index_;
 };
 
-
+v8::Local<v8::Value> PhpObject::Property(PropertyOp op,
+                                         uint32_t index,
+                                         v8::Local<v8::Value> new_value) {
+  // Convert index to string
+  char buf[11];  // strlen("4294967295") == 10, plus null byte
+  snprintf(buf, sizeof(buf), "%" PRIu32, index);
+  return Property(op, NEW_STR(buf), new_value, true);
+}
 v8::Local<v8::Value> PhpObject::Property(PropertyOp op,
                                          v8::Local<v8::String> property,
-                                         v8::Local<v8::Value> newValue) {
+                                         v8::Local<v8::Value> new_value,
+                                         bool is_index) {
   Nan::EscapableHandleScope scope;
   // First, check to see if this is a closed object.
   if (id_ == 0) {
@@ -489,7 +618,7 @@ v8::Local<v8::Value> PhpObject::Property(PropertyOp op,
   // XXX For async property access, might make a PromiseResolver
   // and use that to create a callback.
   PhpPropertyMsg msg(channel_, nullptr, true,  // Sync call.
-                     op, id_, property, newValue);
+                     op, id_, property, new_value, is_index);
   channel_->SendToPhp(&msg, MessageFlags::SYNC);
   THROW_IF_EXCEPTION("PHP exception thrown during property access",
                      v8::Local<v8::Value>());
@@ -517,6 +646,11 @@ class PhpObject::PhpInvokeMsg : public MessageToPhp {
   ~PhpInvokeMsg() override { delete[] argv_; }
 
  protected:
+  bool IsEmptyRetvalOk() override {
+    // We use the empty value to indicate "undefined", which can't
+    // otherwise be represented in PHP.
+    return true;
+  }
   void InPhp(PhpObjectMapper *m TSRMLS_DC) override {
     ZVal obj{ZEND_FILE_LINE_C}, method{ZEND_FILE_LINE_C};
     obj_.ToPhp(m, obj TSRMLS_CC);
@@ -565,6 +699,7 @@ class PhpObject::PhpInvokeMsg : public MessageToPhp {
   }
   void ArrayInPhp(PhpObjectMapper *m, const ZVal &arr, const ZVal &name,
                   int argc, ZVal* argv TSRMLS_DC) {
+    assert(arr.IsArray() && name.IsString());
 #define THROW_IF_BAD_ARGS(meth, n)                                       \
     if (argc < n) {                                                      \
       zend_throw_exception_ex(                                           \
@@ -572,13 +707,12 @@ class PhpObject::PhpInvokeMsg : public MessageToPhp {
         "%s needs at least %d argument%s", meth, n, (n > 1) ? "s" : ""); \
       return;                                                            \
     }                                                                    \
-    /* XXX convert to string, rather than bailing here? */               \
     if (!argv[0].IsString()) {                                           \
-      zend_throw_exception_ex(                                           \
-        zend_exception_get_default(TSRMLS_C), 0 TSRMLS_CC,               \
-        "first argument must be a string");                              \
-      return;                                                            \
-    }
+      argv[0].Separate();                                                \
+      convert_to_string(argv[0].Ptr());                                  \
+    }                                                                    \
+    assert(argv[0].IsString())
+    HashTable *arrht = Z_ARRVAL_P(arr.Ptr());
     const char *cname = Z_STRVAL_P(name.Ptr());
     uint cname_len = Z_STRLEN_P(name.Ptr());
     // Special Map-like methods
@@ -595,7 +729,18 @@ class PhpObject::PhpInvokeMsg : public MessageToPhp {
         ZVal ignore{ZEND_FILE_LINE_C};
         PhpObject::ArrayOp(m, PropertyOp::QUERY, arr, argv[0], ignore,
                            &retval_, &exception_ TSRMLS_CC);
-        retval_.SetBool(!retval_.IsEmpty());
+        // return true only if the property exists & is enumerable
+        if (retval_.IsEmpty()) {
+          retval_.SetBool(false);
+        } else {
+          retval_.ToPhp(m, ignore TSRMLS_CC);
+          assert(ignore.IsLong());
+          if ((Z_LVAL_P(ignore.Ptr()) & v8::DontEnum) != 0) {
+            retval_.SetBool(false);
+          } else {
+            retval_.SetBool(true);
+          }
+        }
         return;
       }
       if (0 == strcmp(cname, "set")) {
@@ -606,8 +751,13 @@ class PhpObject::PhpInvokeMsg : public MessageToPhp {
       break;
     case 4:
       if (0 == strcmp(cname, "size")) {
-        retval_.SetInt(0);  // XXX
+        // This is "number of items" (including string keys), not "max index"
+        retval_.SetInt(zend_hash_num_elements(arrht));
         return;
+      }
+      if (0 == strcmp(cname, "keys")) {
+        return PhpObject::ArrayEnum(m, EnumOp::ALL, arr,
+                                    &retval_, &exception_ TSRMLS_CC);
       }
       break;
     case 6:
@@ -656,24 +806,62 @@ void PhpObject::MethodThunk_(v8::Local<v8::String> method,
                    id_, method, info);
   channel_->SendToPhp(&msg, MessageFlags::SYNC);
   THROW_IF_EXCEPTION("PHP exception thrown during method invocation", /* */);
-  info.GetReturnValue().Set(msg.retval().ToJs(channel_));
+  if (msg.retval().IsEmpty()) {
+    info.GetReturnValue().Set(Nan::Undefined());
+  } else {
+    info.GetReturnValue().Set(msg.retval().ToJs(channel_));
+  }
 }
 
 void PhpObject::ArrayOp(PhpObjectMapper *m, PropertyOp op,
                         const ZVal &arr, const ZVal &name, const ZVal &value,
                         Value *retval, Value *exception TSRMLS_DC) {
+  assert(arr.IsArray() && name.IsString());
+  HashTable *arrht = Z_ARRVAL_P(arr.Ptr());
+  const char *cname = Z_STRVAL_P(name.Ptr());
+  uint cname_len = Z_STRLEN_P(name.Ptr());
+  zval **r;
   if (op == PropertyOp::QUERY) {
-    retval->SetEmpty();  // XXX IMPLEMENT ME
+    if (zend_symtable_find(arrht, cname, cname_len + 1,
+                           reinterpret_cast<void**>(&r)) == SUCCESS) {
+      if (Z_TYPE_PP(r) == IS_NULL) {
+        // "isset" semantics, say it's not enumerable if null
+        retval->SetInt(v8::DontEnum);
+      } else {
+        retval->SetInt(v8::None);
+      }
+    } else {
+      retval->SetEmpty();
+    }
   } else if (op == PropertyOp::GETTER) {
-    retval->SetEmpty();  // XXX IMPLEMENT ME
+    if (zend_symtable_find(arrht, cname, cname_len + 1,
+                           reinterpret_cast<void**>(&r)) == SUCCESS) {
+      retval->Set(m, *r TSRMLS_CC);
+      retval->TakeOwnership();
+    } else {
+      retval->SetEmpty();
+    }
   } else if (op == PropertyOp::SETTER) {
-    retval->Set(m, value.Ptr() TSRMLS_CC);  // XXX IMPLEMENT ME
+    zval *z = const_cast<ZVal &>(value).Escape();
+    zend_symtable_update(arrht, cname, cname_len + 1, &z, sizeof(z), NULL);
+    retval->Set(m, z TSRMLS_CC);
     retval->TakeOwnership();
   } else if (op == PropertyOp::DELETER) {
-    retval->SetEmpty();  // XXX IMPLEMENT ME
+    if (SUCCESS == zend_symtable_del(arrht, cname, cname_len + 1)) {
+      retval->SetBool(true);
+    } else {
+      retval->SetEmpty();
+    }
   } else {
     assert(false);
   }
 }
+
+void PhpObject::ArrayEnum(PhpObjectMapper *m, EnumOp op, const ZVal &arr,
+                          Value *retval, Value *exception TSRMLS_DC) {
+  // XXX unimplemented
+  retval->SetArrayByValue(0, [](uint32_t idx, Value& v) { });
+}
+
 
 }  // namespace node_php_embed

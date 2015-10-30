@@ -388,6 +388,9 @@ class Value {
         : Obj(m->IdForPhpObj(o)) { }
     const char *TypeString() const override { return "PhpObj"; }
   };
+  // Wait objects are empty marker values used to indicate that
+  // the callee should substitute a node-style callback function
+  // for this value.
   class Wait : public Base {
    public:
     Wait() { }
@@ -404,6 +407,9 @@ class Value {
       node_php_jswait_create(return_value TSRMLS_CC);
     }
   };
+  // Method thunks are empty marker values which are returned to
+  // signal that the caller should create a callback thunk.
+  // (That is, that the named property is a method on the PHP side.)
   class MethodThunk : public Base {
    public:
     MethodThunk() { }
@@ -417,6 +423,55 @@ class Value {
                        zval **return_value_ptr TSRMLS_DC) const override {
       assert(false); /* should never reach here */
       RETURN_NULL();
+    }
+  };
+  // Normally arrays are passed "by reference" between Node and PHP;
+  // that is, they are wrapped in proxies and the actual manipulation
+  // happens on the "host" side.  However, for implementing certain
+  // messages (invocations with variable arguments, property enumeration)
+  // it can be useful to transfer multiple Value objects as a single
+  // Value.  This type allows that, and it provides ToJs and ToPhp
+  // implementations that create appropriate "native" arrays.
+  // However `ArrayByValue` is never created by the `Set` methods
+  // which convert native values; it is only created explicitly for
+  // internal use.
+  class ArrayByValue : public Base {
+    friend class Value;
+    uint32_t length_;
+    Value *item_;
+
+   public:
+    explicit ArrayByValue(uint32_t length)
+        : length_(length), item_(new Value[length]) { }
+    virtual ~ArrayByValue() { delete[] item_; }
+    const char *TypeString() const override { return "ArrayByValue"; }
+    v8::Local<v8::Value> ToJs(JsObjectMapper *m) const override {
+      Nan::EscapableHandleScope scope;
+      v8::Local<v8::Array> arr = Nan::New<v8::Array>(length_);
+      for (uint32_t i = 0; i < length_; i++) {
+        Nan::Set(arr, i, item_[i].ToJs(m));
+      }
+      return scope.Escape(arr);
+    }
+    void ToPhp(PhpObjectMapper *m, zval *return_value,
+               zval **return_value_ptr TSRMLS_DC) const override {
+      array_init(return_value);
+      for (uint32_t i = 0; i < length_; i++) {
+        ZVal item{ZEND_FILE_LINE_C};
+        item_[i].ToPhp(m, item TSRMLS_CC);
+        add_index_zval(return_value, i, item.Escape());
+      }
+    }
+    std::string ToString() const override {
+      std::stringstream ss;
+      ss << TypeString() << "[" << length_ << "](";
+      for (uint32_t i = 0; i < length_ && i < 10; i++) {
+        if (i > 0) { ss << ", "; }
+        ss << item_[i].ToString();
+      }
+      if (length_ > 10) { ss << ", ..."; }
+      ss << ")";
+      return ss.str();
     }
   };
 
@@ -599,6 +654,15 @@ class Value {
     type_ = VALUE_METHOD_THUNK;
     new (&method_thunk_) MethodThunk();
   }
+  template<typename Func>
+  void SetArrayByValue(uint32_t length, Func func) {
+    PerhapsDestroy();
+    type_ = VALUE_ARRAY_BY_VALUE;
+    new (&array_by_value_) ArrayByValue(length);
+    for (uint32_t i = 0; i < length; i++) {
+      func(i, array_by_value_.item_[i]);
+    }
+  }
 
   // Helper.
   void SetConstantString(const char *str) {
@@ -627,6 +691,9 @@ class Value {
   inline bool IsMethodThunk() const {
     return (type_ == VALUE_METHOD_THUNK);
   }
+  inline bool IsArrayByValue() const {
+    return (type_ == VALUE_ARRAY_BY_VALUE);
+  }
   bool AsBool() const {
     switch (type_) {
     case VALUE_BOOL:
@@ -645,6 +712,11 @@ class Value {
       break;
     case VALUE_BUF:
       SetOwnedBuffer(buf_.data_, buf_.length_);
+      break;
+    case VALUE_ARRAY_BY_VALUE:
+      for (uint32_t i = 0; i < array_by_value_.length_; i++) {
+        array_by_value_.item_[i].TakeOwnership();
+      }
       break;
     default:
       break;
@@ -670,13 +742,14 @@ class Value {
     VALUE_EMPTY, VALUE_NULL, VALUE_BOOL, VALUE_INT, VALUE_DOUBLE,
     VALUE_STR, VALUE_OSTR, VALUE_BUF, VALUE_OBUF,
     VALUE_JSOBJ, VALUE_PHPOBJ,
-    VALUE_WAIT, VALUE_METHOD_THUNK,
+    VALUE_WAIT, VALUE_METHOD_THUNK, VALUE_ARRAY_BY_VALUE
   } type_;
   union {
     int empty_; Null null_; Bool bool_; Int int_; Double double_;
     Str str_; OStr ostr_; Buf buf_; OBuf obuf_;
     JsObj jsobj_; PhpObj phpobj_;
     Wait wait_; MethodThunk method_thunk_;
+    ArrayByValue array_by_value_;
   };
 
   const Base &AsBase() const {
@@ -707,6 +780,8 @@ class Value {
       return wait_;
     case VALUE_METHOD_THUNK:
       return method_thunk_;
+    case VALUE_ARRAY_BY_VALUE:
+      return array_by_value_;
     }
   }
   NAN_DISALLOW_ASSIGN_COPY_MOVE(Value)
