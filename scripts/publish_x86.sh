@@ -23,7 +23,12 @@ npm install request@2.64.0
 NVER=`node -v`
 # enable 32 bit node
 if [[ ${NODE_VERSION:0:4} == 'iojs' ]]; then
-    wget https://iojs.org/download/release/${NVER}/iojs-${NVER}-${platform}-x86.tar.gz
+    # iojs is having SSL issues (2015-10-29).  Don't check certificates,
+    # but do check SHA256 sums.
+    wget --no-check-certificate https://iojs.org/download/release/${NVER}/iojs-${NVER}-${platform}-x86.tar.gz
+    (fgrep iojs-${NVER}-${platform}-x86.tar.gz   \
+           scripts/iojs-${NVER}-SHASUMS256.txt | \
+            sha256sum -c --strict - ) || exit 1
     tar xf iojs-${NVER}-${platform}-x86.tar.gz
     # enable 32 bit iojs
     export PATH=$(pwd)/iojs-${NVER}-${platform}-x86/bin:$(pwd)/iojs-${NVER}-${platform}-ia32/bin:$PATH
