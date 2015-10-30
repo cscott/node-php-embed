@@ -62,15 +62,31 @@ static zend_object_handlers node_php_jsobject_handlers;
     if (msg.HasException()) {                                   \
       ZVal e{ZEND_FILE_LINE_C};                                 \
       msg.exception().ToPhp(obj->channel, e TSRMLS_CC);         \
-      e.Separate();                                     \
-      convert_to_string(e.Ptr());                               \
-      /* XXX attach the wrapped JS exception XX */              \
-      zend_throw_exception_ex(                                  \
-        zend_exception_get_default(TSRMLS_C), 0 TSRMLS_CC,      \
-        fmt ": %*s", __VA_ARGS__, Z_STRLEN_P(*e), Z_STRVAL_P(*e)); \
+      throwWrappedException(&e TSRMLS_CC);        \
       return;                                                   \
     }                                                           \
   } while (0)
+
+static void throwWrappedException(ZVal *e TSRMLS_DC) {
+  // Try to get a "stack" property, otherwise use the given exception.
+  if (e->IsObject()) {
+    zval *r = zend_read_property(Z_OBJCE_P(e->Ptr()), e->Ptr(),
+                                 "stack", 5, 1 TSRMLS_CC);
+    Z_ADDREF_P(r);
+    if (EG(exception)) {
+      zend_clear_exception(TSRMLS_C);  // ignore
+    } else {
+      e->Set(r ZEND_FILE_LINE_CC);
+    }
+    if (r) { zval_ptr_dtor(&r); }
+  }
+  e->Separate();
+  convert_to_string(e->Ptr());
+  zend_throw_exception_ex(
+        zend_exception_get_default(TSRMLS_C), 0 TSRMLS_CC,
+        "JS: %*s", Z_STRLEN_P(e->Ptr()), Z_STRVAL_P(e->Ptr()));
+  return;
+}
 
 /* JsObject handlers */
 
