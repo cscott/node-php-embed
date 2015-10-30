@@ -304,9 +304,25 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
           // return NULL if we don't have permission to access the property.
           exception_.SetConstantString("Attempt to set private property");
         } else {
-          // Doesn't exist yet, create it!
-          zend_update_property(scope, obj.Ptr(), cname, cname_len,
-                               value.Ptr() TSRMLS_CC);
+          // Okay, we need to be a little careful here:
+          // zend_get_property_info() returned NULL, but that may have
+          // been because there was a private property of this name.
+          // We don't want to create a new property shadowing it, that
+          // would effectively defeat the access modifier.  So we need
+          // to redo a bit of the acces control checks from
+          // zend_get_property_info to ensure it's safe to create a
+          // new property.
+          if (zend_hash_find(&ce->properties_info, cname, cname_len + 1,
+                             reinterpret_cast<void**>(&property_info)) ==
+              SUCCESS) {
+            // Hm, we found the property but zend_get_property_info
+            // told us it wasn't here.  Must be an access issue.
+            // Silently refuse to set the value.
+          } else {
+            // Doesn't exist yet, create it!
+            zend_update_property(scope, obj.Ptr(), cname, cname_len,
+                                 value.Ptr() TSRMLS_CC);
+          }
           retval_.Set(m, value.Ptr() TSRMLS_CC);
         }
       } else if (op_ == PropertyOp::QUERY) {
