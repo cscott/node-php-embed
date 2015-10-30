@@ -1,4 +1,4 @@
-# php-embed x.x.x (not yet released)
+# php-embed 0.5.1 (2015-10-29)
 * Support passing cookies and POST data to PHP request.
 
 # php-embed 0.5.0 (2015-10-28)
