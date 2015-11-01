@@ -20,8 +20,8 @@ if [ `git describe --tags --always HEAD` ]; then
         fi
     else
         echo "warning: travis thinks the tag ($TRAVIS_BRANCH) differs from git (`git describe --tags --always HEAD`)"
-	if [ "${1:-}" == "--check" ]; then
-	    exit 1
-	fi
+        if [ "${1:-}" == "--check" ]; then
+            exit 1
+        fi
     fi
 fi

@@ -17,26 +17,26 @@ var rest = process.argv.slice(0);
 // "properly".
 switch (process.env.BUILDTYPE || 'Release') {
 case 'Debug':
-	rest.push('--enable-debug');
-	break;
+  rest.push('--enable-debug');
+  break;
 default:
 case 'Release':
-	rest.push('--enable-release');
-	break;
+  rest.push('--enable-release');
+  break;
 }
 // Fixup CFLAGS
 if (process.config.variables.target_arch !== 'ia32') {
-    // needed for x86_64
-    rest.push('CFLAGS=-fPIC');
-    rest.push('CXXFLAGS=-fPIC');
+  // needed for x86_64
+  rest.push('CFLAGS=-fPIC');
+  rest.push('CXXFLAGS=-fPIC');
 } else {
-    // needed for multilib builds on x86_64 host
-    rest.push('CFLAGS=-m32');
-    rest.push('CXXFLAGS=-m32');
+  // needed for multilib builds on x86_64 host
+  rest.push('CFLAGS=-m32');
+  rest.push('CXXFLAGS=-m32');
 }
 
 console.log(path.resolve(confdir, './configure'), rest.join(' '));
 var c = child_process.spawn(path.resolve(confdir, './configure'), rest, {
-    cwd: confdir,
-    stdio: 'inherit'
+  cwd: confdir,
+  stdio: 'inherit'
 });

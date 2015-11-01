@@ -3,6 +3,7 @@
   // allow some slop to account for legacy code
   "validateQuoteMarks": { "mark": "'", "escape": true },
   "requireCapitalizedComments": { "allExcept": ["jshint","globals"] },
+  "disallowTabs": true,
 
   "excludeFiles": [
     "test.js",

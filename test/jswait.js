@@ -35,10 +35,10 @@ describe('Invoking asynchronous JS methods from PHP', function() {
         'call_user_func(function () {',
         '  $setTimeout = $_SERVER["CONTEXT"]->setTimeout;',
         '  $testAsync = $_SERVER["CONTEXT"]->testAsync;',
-		// Demonstrate execution of existing node methods
-		'  $setTimeout(new Js\\Wait(), 1); # wait 1 ms',
-		// Demonstrate that JS thread is not blocked.
-		'  return $testAsync(11, 12, new Js\\Wait());',
+        // Demonstrate execution of existing node methods
+        '  $setTimeout(new Js\\Wait(), 1); # wait 1 ms',
+        // Demonstrate that JS thread is not blocked.
+        '  return $testAsync(11, 12, new Js\\Wait());',
         '})',
       ].join('\n'),
     }).then(function(v) {
@@ -54,11 +54,11 @@ describe('Invoking asynchronous JS methods from PHP', function() {
       source: [
         'call_user_func(function () {',
         '  $testAsync = $_SERVER["CONTEXT"]->testAsync;',
-		'  try {',
-		'    $testAsync("early", "x", new Js\\Wait());',
-		'  } catch (Exception $e) {',
-		'    return "exception caught";',
-		'  }',
+        '  try {',
+        '    $testAsync("early", "x", new Js\\Wait());',
+        '  } catch (Exception $e) {',
+        '    return "exception caught";',
+        '  }',
         '})',
       ].join('\n'),
     }).then(function(v) {
@@ -74,11 +74,11 @@ describe('Invoking asynchronous JS methods from PHP', function() {
       source: [
         'call_user_func(function () {',
         '  $testAsync = $_SERVER["CONTEXT"]->testAsync;',
-		'  try {',
-		'    $testAsync("middle", "x", new Js\\Wait());',
-		'  } catch (Exception $e) {',
-		'    return "exception caught";',
-		'  }',
+        '  try {',
+        '    $testAsync("middle", "x", new Js\\Wait());',
+        '  } catch (Exception $e) {',
+        '    return "exception caught";',
+        '  }',
         '})',
       ].join('\n'),
     }).then(function(v) {
@@ -94,11 +94,11 @@ describe('Invoking asynchronous JS methods from PHP', function() {
       source: [
         'call_user_func(function () {',
         '  $testAsync = $_SERVER["CONTEXT"]->testAsync;',
-		'  try {',
-		'    $testAsync("late", "x", new Js\\Wait());',
-		'  } catch (Exception $e) {',
-		'    return "exception caught";',
-		'  }',
+        '  try {',
+        '    $testAsync("late", "x", new Js\\Wait());',
+        '  } catch (Exception $e) {',
+        '    return "exception caught";',
+        '  }',
         '})',
       ].join('\n'),
     }).then(function(v) {

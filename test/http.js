@@ -115,13 +115,13 @@ describe('Feeding POST data from JS to PHP', function() {
       },
     }, {
       source: [
-		'call_user_func(function() {',
-		'  # ensure we handle duplicate headers sent from PHP',
-		'  setcookie("a", "b");',
-		'  setcookie("c", "d", 0, "/");',
-		'  var_dump($_COOKIE);',
-		'  return 1;',
-		'})',
+        'call_user_func(function() {',
+        '  # ensure we handle duplicate headers sent from PHP',
+        '  setcookie("a", "b");',
+        '  setcookie("c", "d", 0, "/");',
+        '  var_dump($_COOKIE);',
+        '  return 1;',
+        '})',
       ].join('\n'),
     }).spread(function(phpvalue, output, response) {
       should(phpvalue).be.equal(1);
