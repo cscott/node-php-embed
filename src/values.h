@@ -604,6 +604,7 @@ class Value {
   }
   // Caller owns the ZVal, and is responsible for freeing it.
   inline void ToPhp(PhpObjectMapper *m, ZVal &z TSRMLS_DC) const {
+    if (!z.IsNull()) { z.SetNull(); /* deallocate previous value */ }
     ToPhp(m, z.Ptr(), z.PtrPtr() TSRMLS_CC);
   }
   inline bool IsEmpty() const {
