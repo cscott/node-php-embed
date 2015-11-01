@@ -486,11 +486,11 @@ void node_php_embed::node_php_jsobject_call_method(
   msg.retval().ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
 }
 
-ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_toString_args, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_tostring_args, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
-PHP_METHOD(JsObject, __toString) {
-  // Implement `__toString` by calling JS `toString` method.
+PHP_METHOD(JsObject, __tostring) {
+  // Implement `__tostring` by calling JS `toString` method.
   // Use plain zval to avoid allocating copy of method name
   zval method; ZVAL_STRINGL(&method, "toString", 8, 0);
   zval *args = nullptr;
@@ -645,7 +645,7 @@ static const zend_function_entry node_php_jsobject_methods[] = {
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
   PHP_ME(JsObject, __invoke, nullptr,
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
-  PHP_ME(JsObject, __toString, node_php_jsobject_toString_args,
+  PHP_ME(JsObject, __tostring, node_php_jsobject_tostring_args,
          ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
   ZEND_FE_END
 };
@@ -664,7 +664,6 @@ PHP_MINIT_FUNCTION(node_php_jsobject_class) {
   memcpy(&node_php_jsobject_handlers, zend_get_std_object_handlers(),
          sizeof(zend_object_handlers));
   node_php_jsobject_handlers.clone_obj = nullptr;
-  node_php_jsobject_handlers.cast_object = nullptr;
   node_php_jsobject_handlers.get_property_ptr_ptr = nullptr;
 #if !USE_MAGIC_ISSET
   node_php_jsobject_handlers.has_property = node_php_jsobject_has_property;
