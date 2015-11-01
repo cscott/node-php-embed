@@ -90,6 +90,17 @@ class ZVal {
   inline zval ** PtrPtr() { return &zvalp; }
   inline zval * Escape() { Z_ADDREF_P(zvalp); return zvalp; }
 
+  // Ensure an unshared copy of this value.
+  inline void Separate() {
+    assert(!transferred_);
+    SEPARATE_ZVAL_IF_NOT_REF(&zvalp);
+  }
+  // A static version that will work on unwrapped zval*
+  static inline zval *Separate(zval *z) {
+    SEPARATE_ZVAL_IF_NOT_REF(&z);
+    return z;
+  }
+
   // Support a PHP calling convention where the actual zval object
   // is owned by the caller, but the contents are transferred to the
   // callee.

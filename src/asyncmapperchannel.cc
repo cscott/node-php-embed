@@ -113,14 +113,19 @@ objid_t AsyncMapperChannel::IdForPhpObj(zval *z) {
 
   objid_t id = NewId();
   if (id >= php_obj_list_.size()) { php_obj_list_.resize(id + 1); }
-  // XXX Should we clone/separate z?
+  // Pass by value.  Note that we seem to be very rarely (never?)
+  // given refs.
   Z_ADDREF_P(z);
-  php_obj_list_[id] = z;
   if (Z_TYPE_P(z) == IS_OBJECT) {
     php_obj_to_id_[handle] = id;
   } else {
+    // We're going to modify this from JS side, so make sure we have
+    // a unique copy (otherwise other copy-on-write references on the
+    // PHP side could be unexpectedly altered).
+    z = ZVal::Separate(z);
     php_arr_to_id_[z] = id;
   }
+  php_obj_list_[id] = z;
   return id;
 }
 
