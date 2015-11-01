@@ -57,15 +57,17 @@ static zend_object_handlers node_php_jsobject_handlers;
   }                                                                     \
   FETCH_OBJ(method, this_ptr)
 
-#define THROW_IF_EXCEPTION(...)                                 \
+#define THROW_IF_EXCEPTION(fmt, ...)                            \
   do {                                                          \
     if (msg.HasException()) {                                   \
       ZVal e{ZEND_FILE_LINE_C};                                 \
       msg.exception().ToPhp(obj->channel, e TSRMLS_CC);         \
+      e.Separate();                                     \
+      convert_to_string(e.Ptr());                               \
       /* XXX attach the wrapped JS exception XX */              \
       zend_throw_exception_ex(                                  \
         zend_exception_get_default(TSRMLS_C), 0 TSRMLS_CC,      \
-        __VA_ARGS__);                                           \
+        fmt ": %*s", __VA_ARGS__, Z_STRLEN_P(*e), Z_STRVAL_P(*e)); \
       return;                                                   \
     }                                                           \
   } while (0)
@@ -466,7 +468,7 @@ PHP_METHOD(JsObject, __invoke) {
                   obj->id, &member, argc, argv TSRMLS_CC);
   efree(argv);
   obj->channel->SendToJs(&msg, MessageFlags::SYNC TSRMLS_CC);
-  THROW_IF_EXCEPTION("JS exception thrown during __invoke");
+  THROW_IF_EXCEPTION("JS exception thrown during %s", "__invoke");
   msg.retval().ToPhp(obj->channel, return_value, return_value_ptr TSRMLS_CC);
   TRACE("<");
 }
