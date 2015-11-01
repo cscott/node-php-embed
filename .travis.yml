@@ -31,24 +31,23 @@ matrix:
      # Linux
      - os: linux
        compiler: clang
-       env: NODE_VERSION="4.1.2" PUBLISHABLE=false
+       env: NODE_VERSION="5.0.0" PUBLISHABLE=false
      - os: linux
-       env: NODE_VERSION="4.1.2" BUILD_X86=true # node abi 46
+       env: NODE_VERSION="5.0.0" BUILD_X86=true # node abi 47
      # Test in release mode, not just debug mode.
      - os: linux
        compiler: clang
-       env: NODE_VERSION="4.1.2" PUBLISHABLE=false RELEASE=true
+       env: NODE_VERSION="5.0.0" PUBLISHABLE=false RELEASE=true
      - os: linux
        compiler: clang
-       env: NODE_VERSION="4.0.0" PUBLISHABLE=false
+       env: NODE_VERSION="4.2.1" PUBLISHABLE=false
+     - os: linux
+       env: NODE_VERSION="4.2.1" BUILD_X86=true # node abi 46
      - os: linux
        compiler: clang
        env: NODE_VERSION="iojs-v3.3.1" PUBLISHABLE=false
      - os: linux
        env: NODE_VERSION="iojs-v3.3.1" BUILD_X86=true # node abi 45
-     - os: linux
-       compiler: clang
-       env: NODE_VERSION="iojs-v3.1.0" PUBLISHABLE=false
      - os: linux
        compiler: clang
        env: NODE_VERSION="iojs-v2.4.0" PUBLISHABLE=false
@@ -58,7 +57,7 @@ matrix:
 # https://github.com/travis-ci/apt-package-whitelist#package-approval-process
 #     # test building against external libphp5
 #     - os: linux
-#       env: NODE_VERSION="4.1.2" EXTERNAL_LIBPHP=true PUBLISHABLE=false
+#       env: NODE_VERSION="4.2.1" EXTERNAL_LIBPHP=true PUBLISHABLE=false
 #       addons:
 #         apt:
 #            sources: [ 'libphp5-embed:i386', 'php5-dev:i386' ]
@@ -66,7 +65,10 @@ matrix:
      # OS X
      - os: osx
        compiler: clang
-       env: NODE_VERSION="4.1.2" # node abi 46
+       env: NODE_VERSION="5.0.0" # node abi 47
+     - os: osx
+       compiler: clang
+       env: NODE_VERSION="4.2.1" # node abi 46
      - os: osx
        compiler: clang
        env: NODE_VERSION="iojs-v3.3.1" # node abi 45
