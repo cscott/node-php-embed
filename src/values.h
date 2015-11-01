@@ -102,16 +102,16 @@ class ZVal {
     return zvalp;
   }
   inline zval * operator*() const { return Ptr(); }  // Shortcut operator.
-  inline int Type() { return Z_TYPE_P(zvalp); }
-  inline bool IsNull() { return Type() == IS_NULL; }
-  inline bool IsBool() { return Type() == IS_BOOL; }
-  inline bool IsLong() { return Type() == IS_LONG; }
-  inline bool IsDouble() { return Type() == IS_DOUBLE; }
-  inline bool IsString() { return Type() == IS_STRING; }
-  inline bool IsArray() { return Type() == IS_ARRAY; }
-  inline bool IsObject() { return Type() == IS_OBJECT; }
-  inline bool IsResource() { return Type() == IS_RESOURCE; }
-  inline bool IsUninitialized(TSRMLS_D) {
+  inline int Type() const { return Z_TYPE_P(zvalp); }
+  inline bool IsNull() const { return Type() == IS_NULL; }
+  inline bool IsBool() const { return Type() == IS_BOOL; }
+  inline bool IsLong() const { return Type() == IS_LONG; }
+  inline bool IsDouble() const { return Type() == IS_DOUBLE; }
+  inline bool IsString() const { return Type() == IS_STRING; }
+  inline bool IsArray() const { return Type() == IS_ARRAY; }
+  inline bool IsObject() const { return Type() == IS_OBJECT; }
+  inline bool IsResource() const { return Type() == IS_RESOURCE; }
+  inline bool IsUninitialized(TSRMLS_D) const {
     return zvalp == EG(uninitialized_zval_ptr);
   }
   inline void Set(zval *z ZEND_FILE_LINE_DC) {
