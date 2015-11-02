@@ -359,10 +359,14 @@ class JsInvokeMsg : public MessageToJs {
               objid_t objId, zval *member, ulong argc, zval **argv TSRMLS_DC)
       : MessageToJs(m, callback, isSync),
         object_(), member_(m, member TSRMLS_CC),
-        argc_(argc), argv_(Value::NewArray(m, argc, argv TSRMLS_CC)) {
+        argc_(argc), argv_() {
     object_.SetJsObject(objId);
+    argv_.SetArrayByValue(argc, [m, argv TSRMLS_CC](uint32_t idx, Value& v) {
+      ZVal z(argv[idx] ZEND_FILE_LINE_CC);
+      z.UnwrapByRef(TSRMLS_C);  // Unwrap Js\ByRef values.
+      v.Set(m, z TSRMLS_CC);
+    });
   }
-  ~JsInvokeMsg() override { delete[] argv_; }
 
  protected:
   void InJs(JsObjectMapper *m) override {
@@ -431,7 +435,7 @@ class JsInvokeMsg : public MessageToJs {
   Value object_;
   Value member_;
   ulong argc_;
-  Value *argv_;
+  Value argv_;
 };
 
 // XXX Figure out how to actually invoke methods async.
@@ -442,8 +446,6 @@ ZEND_BEGIN_ARG_INFO_EX(node_php_jsobject_call_args, 0, 1/*return by ref*/, 1)
     ZEND_ARG_ARRAY_INFO(0, args, 0)
 ZEND_END_ARG_INFO()
 
-// XXX can't figure out how to pass arrays by reference instead of
-// by value.
 PHP_METHOD(JsObject, __call) {
   zval *member; zval *args;
   TRACE(">");

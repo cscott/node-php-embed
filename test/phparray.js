@@ -535,38 +535,14 @@ describe('Wrapped PHP arrays accessed from JavaScript', function() {
   });
   it('can be passed by reference', function() {
     return test(function(arr) {
-      arr.offsetSet(1, 2);
-      arr.offsetSet('foo', 'bar');
-      // XXX make the below work.
-      // `arr[1] = 2;`
-      // `arr['foo'] = 'bar';`
+      arr[1] = 2;
+      arr.set('foo', 'bar');
     }, [
       'call_user_func(function() {',
-      // XXX this `wrap` class should be built-in as Js\ArrayByRef
-      '  class wrap implements ArrayAccess, Countable {',
-      '    private $a;',
-      '    public function __construct(&$a) { $this->a =& $a; }',
-      '    public function offsetSet($offset, $value) {',
-      '      if (is_null($offset)) { $this->a[] = $value; }',
-      '      else { $this->a[$offset] = $value; }',
-      '    }',
-      '    public function offsetExists($offset) {',
-      '      return isset($this->a[$offset]);',
-      '    }',
-      '    public function offsetUnset($offset) {',
-      '      unset($this->a[$offset]);',
-      '    }',
-      '    public function offsetGet($offset) {',
-      '      return isset($this->a[$offset]) ? $this->a[$offset] : null;',
-      '    }',
-      '    public function count() {',
-      '      return count($this->a);',
-      '    }',
-      '  }',
       '  $a = array("a" => "b");',
       '  $b = $a;',
       '  $ctxt = $_SERVER["CONTEXT"];',
-      '  $ctxt->jsfunc(new wrap($a));',
+      '  $ctxt->jsfunc(new Js\\ByRef($a));',
       '  var_dump($a);',
       '  var_dump($b);',
       '})',

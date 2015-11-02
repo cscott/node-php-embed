@@ -18,6 +18,7 @@
 
 extern "C" {
 #include "main/php.h"
+#include "Zend/zend_interfaces.h"  // for zend_call_method_with_*
 }
 
 #include "src/macros.h"
@@ -99,6 +100,24 @@ class ZVal {
   static inline zval *Separate(zval *z) {
     SEPARATE_ZVAL_IF_NOT_REF(&z);
     return z;
+  }
+
+  // Unwrap references protected by Js\ByRef
+  inline void UnwrapByRef(TSRMLS_D) {
+    if (!IsObject()) { return; }
+    assert(zvalp && !transferred_);
+    zend_class_entry *ce = Z_OBJCE_P(zvalp);
+    // XXX cache the zend_class_entry at startup so we can do a simple
+    // pointer comparison instead of looking at the class name
+    if (ce->name_length == 8 && strcmp("Js\\ByRef", ce->name) == 0) {
+      // Unwrap!
+      zval *rv;
+      zend_call_method_with_0_params(&zvalp, nullptr, nullptr, "getValue", &rv);
+      if (rv) {
+        zval_ptr_dtor(&zvalp);
+        zvalp = rv;
+      }
+    }
   }
 
   // Support a PHP calling convention where the actual zval object
@@ -693,6 +712,10 @@ class Value {
   }
   inline bool IsArrayByValue() const {
     return (type_ == VALUE_ARRAY_BY_VALUE);
+  }
+  inline Value& operator[](int i) const {
+    assert(IsArrayByValue());
+    return array_by_value_.item_[i];
   }
   bool AsBool() const {
     switch (type_) {
