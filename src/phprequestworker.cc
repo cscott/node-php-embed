@@ -14,6 +14,7 @@ extern "C" {
 #include "Zend/zend_interfaces.h"
 #include "ext/standard/head.h"
 #include "ext/standard/info.h"
+#include "ext/standard/php_string.h"
 }
 
 #include "src/asyncmessageworker.h"
@@ -27,10 +28,11 @@ PhpRequestWorker::PhpRequestWorker(Nan::Callback *callback,
                                    v8::Local<v8::Object> stream,
                                    v8::Local<v8::Array> args,
                                    v8::Local<v8::Object> server_vars,
-                                   v8::Local<v8::Value> init_func)
+                                   v8::Local<v8::Value> init_func,
+                                   const char *startup_file)
     : AsyncMessageWorker(callback), result_(), stream_(), init_func_(),
       argc_(args->Length()), argv_(new char*[args->Length()]),
-      server_vars_() {
+      server_vars_(), startup_file_(startup_file) {
   JsStartupMapper mapper(this);
   source_.Set(&mapper, source);
   stream_.Set(&mapper, stream);
@@ -126,6 +128,22 @@ void PhpRequestWorker::Execute(MapperChannel *channel TSRMLS_DC) {
   {
     ZVal source{ZEND_FILE_LINE_C}, result{ZEND_FILE_LINE_C};
     zend_first_try {
+      // First execute startup code.
+      if (startup_file_) {
+          int nlen = 0;
+          char *f = php_addslashes(const_cast<char*>(startup_file_),
+                                   strlen(startup_file_),
+                                   &nlen, 0 TSRMLS_CC);
+          char *buf = new char[11 + nlen];
+          char startup_msg[] = { "startup" };
+          nlen = snprintf(buf, 11 + nlen, "require '%s'", f);
+          zend_eval_stringl_ex(buf, nlen, *result, startup_msg, false
+                               TSRMLS_CC);
+          result.SetNull();
+          delete[] buf;
+          efree(f);
+      }
+      // Now execute the user's source.
       char eval_msg[] = { "request" };  // This shows up in error messages.
       source_.ToPhp(channel, source TSRMLS_CC);
       assert(Z_TYPE_P(*source) == IS_STRING);

@@ -24,7 +24,8 @@ class PhpRequestWorker : public AsyncMessageWorker {
   PhpRequestWorker(Nan::Callback *callback, v8::Local<v8::String> source,
                    v8::Local<v8::Object> stream, v8::Local<v8::Array> args,
                    v8::Local<v8::Object> server_vars,
-                   v8::Local<v8::Value> init_func);
+                   v8::Local<v8::Value> init_func,
+                   const char *startup_file);
   virtual ~PhpRequestWorker();
   const inline Value &GetStream() { return stream_; }
   const inline Value &GetInitFunc() { return init_func_; }
@@ -50,6 +51,7 @@ class PhpRequestWorker : public AsyncMessageWorker {
   uint32_t argc_;
   char **argv_;
   std::unordered_map<std::string, std::string> server_vars_;
+  const char *startup_file_;
 };
 
 }  // namespace node_php_embed

@@ -36,6 +36,8 @@ using node_php_embed::node_php_jsobject_call_method;
 
 static void node_php_embed_ensure_init(void);
 
+static char *node_php_embed_startup_file;
+
 ZEND_DECLARE_MODULE_GLOBALS(node_php_embed);
 
 /* PHP extension metadata */
@@ -219,12 +221,23 @@ static void node_php_embed_register_server_variables(
 
 NAN_METHOD(setIniPath) {
   TRACE(">");
-  REQUIRE_ARGUMENT_STRING(0, iniPath);
+  REQUIRE_ARGUMENT_STRING(0, ini_path);
   if (php_embed_module.php_ini_path_override) {
     free(php_embed_module.php_ini_path_override);
   }
   php_embed_module.php_ini_path_override =
-    (*iniPath) ? strdup(*iniPath) : nullptr;
+    (*ini_path) ? strdup(*ini_path) : nullptr;
+  TRACE("<");
+}
+
+NAN_METHOD(setStartupFile) {
+  TRACE(">");
+  REQUIRE_ARGUMENT_STRING(0, file_name);
+  if (node_php_embed_startup_file) {
+    free(node_php_embed_startup_file);
+  }
+  node_php_embed_startup_file =
+    (*file_name) ? strdup(*file_name) : nullptr;
   TRACE("<");
 }
 
@@ -256,7 +269,8 @@ NAN_METHOD(request) {
 
   node_php_embed_ensure_init();
   Nan::AsyncQueueWorker(new PhpRequestWorker(callback, source, stream,
-                                             args, server_vars, init_func));
+                                             args, server_vars, init_func,
+                                             node_php_embed_startup_file));
   TRACE("<");
 }
 
@@ -330,6 +344,7 @@ static void node_php_embed_ensure_init(void) {
 
 NAN_MODULE_INIT(ModuleInit) {
   TRACE(">");
+  node_php_embed_startup_file = NULL;
   php_embed_module.php_ini_path_override = nullptr;
   php_embed_module.php_ini_ignore = true;
   php_embed_module.php_ini_ignore_cwd = true;
@@ -351,6 +366,7 @@ NAN_MODULE_INIT(ModuleInit) {
 
   // Export functions
   NAN_EXPORT(target, setIniPath);
+  NAN_EXPORT(target, setStartupFile);
   NAN_EXPORT(target, request);
   TRACE("<");
 }
@@ -364,6 +380,11 @@ void ModuleShutdown(void *arg) {
   php_embed_shutdown(TSRMLS_C);
   if (php_embed_module.php_ini_path_override) {
     free(php_embed_module.php_ini_path_override);
+    php_embed_module.php_ini_path_override = NULL;
+  }
+  if (node_php_embed_startup_file) {
+    free(node_php_embed_startup_file);
+    node_php_embed_startup_file = NULL;
   }
   TRACE("<");
 }
