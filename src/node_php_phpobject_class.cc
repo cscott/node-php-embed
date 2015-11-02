@@ -640,10 +640,14 @@ class PhpObject::PhpInvokeMsg : public MessageToPhp {
                objid_t obj, v8::Local<v8::String> method,
                const Nan::FunctionCallbackInfo<v8::Value> &info)
       : MessageToPhp(m, callback, is_sync), method_(m, method),
-        argc_(info.Length()), argv_(Value::NewArray(m, info)) {
+        argc_(info.Length()), argv_(Value::NewArray(m, info)),
+        should_convert_array_to_iterator_(false) {
     obj_.SetJsObject(obj);
   }
   ~PhpInvokeMsg() override { delete[] argv_; }
+  inline bool should_convert_array_to_iterator() {
+    return should_convert_array_to_iterator_;
+  }
 
  protected:
   bool IsEmptyRetvalOk() override {
@@ -756,6 +760,8 @@ class PhpObject::PhpInvokeMsg : public MessageToPhp {
         return;
       }
       if (0 == strcmp(cname, "keys")) {
+        // Map#keys() should actually return an Iterator, not an array.
+        should_convert_array_to_iterator_ = true;
         return PhpObject::ArrayEnum(m, EnumOp::ALL, arr,
                                     &retval_, &exception_ TSRMLS_CC);
       }
@@ -784,6 +790,7 @@ class PhpObject::PhpInvokeMsg : public MessageToPhp {
   Value method_;
   int argc_;
   Value *argv_;
+  bool should_convert_array_to_iterator_;
 };
 
 
@@ -808,6 +815,15 @@ void PhpObject::MethodThunk_(v8::Local<v8::String> method,
   THROW_IF_EXCEPTION("PHP exception thrown during method invocation", /* */);
   if (msg.retval().IsEmpty()) {
     info.GetReturnValue().Set(Nan::Undefined());
+  } else if (msg.should_convert_array_to_iterator()) {
+    // Map#keys() method should actually return an iterator, not an
+    // array, so call Array#values() on the result.
+    v8::Local<v8::Array> r = msg.retval().ToJs(channel_).As<v8::Array>();
+    v8::Local<v8::Object> values = Nan::Get(r, NEW_STR("values"))
+      .ToLocalChecked().As<v8::Object>();
+    Nan::MaybeLocal<v8::Value> newr =
+      Nan::CallAsFunction(values, r, 0, nullptr);
+    if (!newr.IsEmpty()) { info.GetReturnValue().Set(newr.ToLocalChecked()); }
   } else {
     info.GetReturnValue().Set(msg.retval().ToJs(channel_));
   }
