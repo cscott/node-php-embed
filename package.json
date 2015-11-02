@@ -52,7 +52,7 @@
     "node-pre-gyp"
   ],
   "devDependencies": {
-    "jscs": "~2.4.0",
+    "jscs": "~2.5.0",
     "jshint": "~2.8.0",
     "mocha": "~2.3.3",
     "readable-stream": "~2.0.2",
