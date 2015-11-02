@@ -198,6 +198,32 @@ NAN_INDEX_ENUMERATOR(PhpObject::IndexEnumerate) {
   TRACE("<");
 }
 
+// Helper function, called from PHP only
+static bool IsArrayAccess(zval *z TSRMLS_DC) {
+  if (Z_TYPE_P(z) != IS_OBJECT) {
+    TRACE("false (not object)");
+    return false;
+  }
+  zend_class_entry *ce = Z_OBJCE_P(z);
+  bool has_array_access = false;
+  bool has_countable = false;
+  for (zend_uint i = 0; i < ce->num_interfaces; i++) {
+    if (strcmp(ce->interfaces[i]->name, "ArrayAccess") == 0) {
+      has_array_access = true;
+    }
+    if (strcmp(ce->interfaces[i]->name, "Countable") == 0) {
+      has_countable = true;
+    }
+    if (has_array_access && has_countable) {
+      // Bail early from loop, don't need to look further.
+      TRACE("true");
+      return true;
+    }
+  }
+  TRACE("false");
+  return false;
+}
+
 class PhpObject::PhpEnumerateMsg : public MessageToPhp {
  public:
   PhpEnumerateMsg(ObjectMapper *m, Nan::Callback *callback, bool is_sync,
@@ -211,8 +237,10 @@ class PhpObject::PhpEnumerateMsg : public MessageToPhp {
 
     obj_.ToPhp(m, obj TSRMLS_CC);
     assert(obj.IsObject() || obj.IsArray());
-    if (obj.IsArray()) {
-      return ArrayEnum(m, op_, obj, &retval_, &exception_ TSRMLS_CC);
+    bool is_array_access = IsArrayAccess(obj.Ptr() TSRMLS_CC);
+    if (obj.IsArray() || is_array_access) {
+      return ArrayEnum(m, op_, obj, is_array_access, &retval_, &exception_
+                       TSRMLS_CC);
     }
     // XXX unimplemented
     retval_.SetArrayByValue(0, [](uint32_t idx, Value& v) { });
@@ -271,8 +299,9 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
     }
     // Arrays are handled in a separate method (but the ZVals here will
     // handle the memory management for us).
-    if (obj.IsArray()) {
-      return ArrayInPhp(m, obj, zname, value TSRMLS_CC);
+    bool is_array_access = IsArrayAccess(obj.Ptr() TSRMLS_CC);
+    if (obj.IsArray() || is_array_access) {
+      return ArrayInPhp(m, obj, is_array_access, zname, value TSRMLS_CC);
     }
     const char *cname = Z_STRVAL_P(*zname);
     uint cname_len = Z_STRLEN_P(*zname);
@@ -481,10 +510,9 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
       }
     }
   }
-  void ArrayInPhp(PhpObjectMapper *m, const ZVal &arr, const ZVal &name,
-                  const ZVal &value TSRMLS_DC) {
-    assert(arr.IsArray());
-    HashTable *arrht = Z_ARRVAL_P(arr.Ptr());
+  void ArrayInPhp(PhpObjectMapper *m, const ZVal &arr, bool is_array_access,
+                  const ZVal &name, const ZVal &value TSRMLS_DC) {
+    assert(is_array_access ? arr.IsObject() : arr.IsArray());
     const char *cname = Z_STRVAL_P(name.Ptr());
     uint cname_len = Z_STRLEN_P(name.Ptr());
     // Length is special
@@ -492,32 +520,11 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
       if (op_ == PropertyOp::QUERY) {
         // Length is not enumerable and not configurable, but *is* writable.
         retval_.SetInt(v8::DontEnum|v8::DontDelete);
-      } else if (op_ == PropertyOp::GETTER) {
+      } else if (op_ == PropertyOp::GETTER || op_ == PropertyOp::SETTER) {
         // Length property is "maximum index in hash", not "number of items"
-        retval_.SetInt(zend_hash_next_free_element(arrht));
-      } else if (op_ == PropertyOp::SETTER) {
-        if (!value.IsLong()) {
-          // convert to int
-          const_cast<ZVal&>(value).Separate();
-          convert_to_long(value.Ptr());
-        }
-        if (value.IsLong() && Z_LVAL_P(value.Ptr()) >= 0) {
-          ulong nlen = Z_LVAL_P(value.Ptr());
-          ulong olen = zend_hash_next_free_element(arrht);
-          if (nlen < olen) {
-            // We have to iterate here, rather unfortunate.
-            // XXX We could look at zend_hash_num_elements() and
-            // iterate over the elements if num_elements < (olen - nlen)
-            for (ulong i = nlen; i < olen; i++) {
-              zend_hash_index_del(arrht, i);
-            }
-          }
-          // This is quite dodgy, since we're going to write the
-          // nNextFreeElement field directly.  Perhaps not portable!
-          arrht->nNextFreeElement = nlen;
-        }
-        retval_.Set(m, value TSRMLS_CC);
-        retval_.TakeOwnership();
+        return PhpObject::ArraySize(m, op_, EnumOp::ONLY_INDEX,
+                                    arr, is_array_access, value,
+                                    &retval_, &exception_ TSRMLS_CC);
       } else if (op_ == PropertyOp::DELETER) {
         // Can't delete the length property.
         retval_.SetBool(false);  // "property found here, but not deletable"
@@ -528,7 +535,7 @@ class PhpObject::PhpPropertyMsg : public MessageToPhp {
     }
     // All-numeric keys are special
     if (is_index_) {
-      return PhpObject::ArrayOp(m, op_, arr, name, value,
+      return PhpObject::ArrayOp(m, op_, arr, is_array_access, name, value,
                                 &retval_, &exception_ TSRMLS_CC);
     }
     // Special Map-like methods
@@ -669,8 +676,10 @@ class PhpObject::PhpInvokeMsg : public MessageToPhp {
     assert(method.IsString());
     // Arrays are handled in a separate method (but the ZVals here will
     // handle the memory management for us).
-    if (obj.IsArray()) {
-      return ArrayInPhp(m, obj, method, args.size(), args.data() TSRMLS_CC);
+    bool is_array_access = IsArrayAccess(obj.Ptr() TSRMLS_CC);
+    if (obj.IsArray() || is_array_access) {
+      return ArrayInPhp(m, obj, is_array_access,
+                        method, args.size(), args.data() TSRMLS_CC);
     }
     ZVal retval{ZEND_FILE_LINE_C};
     // If the method name is __call, then shift the new method name off
@@ -701,9 +710,10 @@ class PhpObject::PhpInvokeMsg : public MessageToPhp {
       retval_.TakeOwnership();  // This will outlive scope of `retval`
     }
   }
-  void ArrayInPhp(PhpObjectMapper *m, const ZVal &arr, const ZVal &name,
-                  int argc, ZVal* argv TSRMLS_DC) {
-    assert(arr.IsArray() && name.IsString());
+  void ArrayInPhp(PhpObjectMapper *m, const ZVal &arr, bool is_array_access,
+                  const ZVal &name, int argc, ZVal* argv TSRMLS_DC) {
+    assert(is_array_access ? arr.IsObject() : arr.IsArray());
+    assert(name.IsString());
 #define THROW_IF_BAD_ARGS(meth, n)                                       \
     if (argc < n) {                                                      \
       zend_throw_exception_ex(                                           \
@@ -716,7 +726,6 @@ class PhpObject::PhpInvokeMsg : public MessageToPhp {
       convert_to_string(argv[0].Ptr());                                  \
     }                                                                    \
     assert(argv[0].IsString())
-    HashTable *arrht = Z_ARRVAL_P(arr.Ptr());
     const char *cname = Z_STRVAL_P(name.Ptr());
     uint cname_len = Z_STRLEN_P(name.Ptr());
     // Special Map-like methods
@@ -725,14 +734,15 @@ class PhpObject::PhpInvokeMsg : public MessageToPhp {
       if (0 == strcmp(cname, "get")) {
         THROW_IF_BAD_ARGS("get", 1);
         ZVal ignore{ZEND_FILE_LINE_C};
-        return PhpObject::ArrayOp(m, PropertyOp::GETTER, arr, argv[0], ignore,
-                                  &retval_, &exception_ TSRMLS_CC);
+        return PhpObject::ArrayOp(m, PropertyOp::GETTER, arr, is_array_access,
+                                  argv[0], ignore, &retval_, &exception_
+                                  TSRMLS_CC);
       }
       if (0 == strcmp(cname, "has")) {
         THROW_IF_BAD_ARGS("has", 1);
         ZVal ignore{ZEND_FILE_LINE_C};
-        PhpObject::ArrayOp(m, PropertyOp::QUERY, arr, argv[0], ignore,
-                           &retval_, &exception_ TSRMLS_CC);
+        PhpObject::ArrayOp(m, PropertyOp::QUERY, arr, is_array_access,
+                           argv[0], ignore, &retval_, &exception_ TSRMLS_CC);
         // return true only if the property exists & is enumerable
         if (retval_.IsEmpty()) {
           retval_.SetBool(false);
@@ -749,20 +759,23 @@ class PhpObject::PhpInvokeMsg : public MessageToPhp {
       }
       if (0 == strcmp(cname, "set")) {
         THROW_IF_BAD_ARGS("set", 2);
-        return PhpObject::ArrayOp(m, PropertyOp::SETTER, arr, argv[0], argv[1],
-                                  &retval_, &exception_ TSRMLS_CC);
+        return PhpObject::ArrayOp(m, PropertyOp::SETTER, arr, is_array_access,
+                                  argv[0], argv[1], &retval_, &exception_
+                                  TSRMLS_CC);
       }
       break;
     case 4:
       if (0 == strcmp(cname, "size")) {
-        // This is "number of items" (including string keys), not "max index"
-        retval_.SetInt(zend_hash_num_elements(arrht));
-        return;
+        // Size of all items, not just maximum index in hash.
+        ZVal ignore{ZEND_FILE_LINE_C};
+        return PhpObject::ArraySize(m, PropertyOp::GETTER, EnumOp::ALL,
+                                    arr, is_array_access, ignore,
+                                    &retval_, &exception_ TSRMLS_CC);
       }
       if (0 == strcmp(cname, "keys")) {
         // Map#keys() should actually return an Iterator, not an array.
         should_convert_array_to_iterator_ = true;
-        return PhpObject::ArrayEnum(m, EnumOp::ALL, arr,
+        return PhpObject::ArrayEnum(m, EnumOp::ALL, arr, is_array_access,
                                     &retval_, &exception_ TSRMLS_CC);
       }
       break;
@@ -770,7 +783,8 @@ class PhpObject::PhpInvokeMsg : public MessageToPhp {
       if (0 == strcmp(cname, "delete")) {
         THROW_IF_BAD_ARGS("delete", 1);
         ZVal ignore{ZEND_FILE_LINE_C};
-        PhpObject::ArrayOp(m, PropertyOp::DELETER, arr, argv[0], ignore,
+        PhpObject::ArrayOp(m, PropertyOp::DELETER, arr, is_array_access,
+                           argv[0], ignore,
                            &retval_, &exception_ TSRMLS_CC);
         retval_.SetBool(!retval_.IsEmpty());
         return;
@@ -828,10 +842,67 @@ void PhpObject::MethodThunk_(v8::Local<v8::String> method,
     info.GetReturnValue().Set(msg.retval().ToJs(channel_));
   }
 }
-
-void PhpObject::ArrayOp(PhpObjectMapper *m, PropertyOp op,
+void PhpObject::ArrayAccessOp(PhpObjectMapper *m, PropertyOp op,
                         const ZVal &arr, const ZVal &name, const ZVal &value,
                         Value *retval, Value *exception TSRMLS_DC) {
+  assert(arr.IsObject() && name.IsString());
+  zval *rv = nullptr;
+
+  zval **objpp = const_cast<ZVal&>(arr).PtrPtr();
+  // Make sure calling the interface method doesn't screw with `name`;
+  // this is done in spl_array.c, presumably for good reason.
+  ZVal offset(name.Ptr() ZEND_FILE_LINE_CC);
+  offset.Separate();
+  if (op == PropertyOp::QUERY) {
+    zend_call_method_with_1_params(objpp, nullptr, nullptr, "offsetExists",
+                                   &rv, offset.Ptr());
+    if (rv && zend_is_true(rv)) {
+      retval->SetInt(v8::None);
+    } else {
+      retval->SetEmpty();
+    }
+    if (rv) { zval_ptr_dtor(&rv); }
+  } else if (op == PropertyOp::GETTER) {
+    zval *rv2;
+    // We need to call offsetExists to distinguish between "missing offset"
+    // and "offset present, but with value NULL."
+    zend_call_method_with_1_params(objpp, nullptr, nullptr, "offsetExists",
+                                   &rv2, offset.Ptr());
+    if (rv2 && zend_is_true(rv2)) {
+      zend_call_method_with_1_params(objpp, nullptr, nullptr, "offsetGet",
+                                     &rv, offset.Ptr());
+    }
+    if (rv) {
+      retval->Set(m, rv TSRMLS_CC);
+      retval->TakeOwnership();
+      zval_ptr_dtor(&rv);
+    } else {
+      retval->SetEmpty();
+    }
+    if (rv2) { zval_ptr_dtor(&rv2); }
+  } else if (op == PropertyOp::SETTER) {
+    zend_call_method_with_2_params(objpp, nullptr, nullptr, "offsetSet",
+                                   NULL, offset.Ptr(), value.Ptr());
+    retval->Set(m, value TSRMLS_CC);
+    retval->TakeOwnership();
+  } else if (op == PropertyOp::DELETER) {
+    zend_call_method_with_1_params(objpp, nullptr, nullptr, "offsetUnset",
+                                   NULL, offset.Ptr());
+    retval->SetBool(true);
+  } else {
+    assert(false);
+  }
+}
+
+void PhpObject::ArrayOp(PhpObjectMapper *m, PropertyOp op,
+                        const ZVal &arr, bool is_array_access,
+                        const ZVal &name, const ZVal &value,
+                        Value *retval, Value *exception TSRMLS_DC) {
+  if (is_array_access) {
+    // Split this case into its own function to avoid cluttering this one
+    // with two dissimilar cases.
+    return ArrayAccessOp(m, op, arr, name, value, retval, exception TSRMLS_CC);
+  }
   assert(arr.IsArray() && name.IsString());
   HashTable *arrht = Z_ARRVAL_P(arr.Ptr());
   const char *cname = Z_STRVAL_P(name.Ptr());
@@ -873,10 +944,81 @@ void PhpObject::ArrayOp(PhpObjectMapper *m, PropertyOp op,
   }
 }
 
-void PhpObject::ArrayEnum(PhpObjectMapper *m, EnumOp op, const ZVal &arr,
+void PhpObject::ArrayEnum(PhpObjectMapper *m, EnumOp op,
+                          const ZVal &arr, bool is_array_access,
                           Value *retval, Value *exception TSRMLS_DC) {
   // XXX unimplemented
   retval->SetArrayByValue(0, [](uint32_t idx, Value& v) { });
+}
+
+void PhpObject::ArraySize(PhpObjectMapper *m, PropertyOp op, EnumOp which,
+                          const ZVal &arr, bool is_array_access,
+                          const ZVal &value,
+                          Value *retval, Value *exception TSRMLS_DC) {
+  if (is_array_access) {
+    assert(arr.IsObject());
+    zval **objpp = const_cast<ZVal&>(arr).PtrPtr();
+    zval *rv;
+    if (op == PropertyOp::GETTER) {
+      if (which == EnumOp::ALL) {
+        zend_call_method_with_0_params(objpp, nullptr, nullptr, "count", &rv);
+        ZVal r(rv ZEND_FILE_LINE_CC);
+        if (rv) { zval_ptr_dtor(&rv); }
+        r.Separate();
+        convert_to_long(r.Ptr());
+        retval->Set(m, r TSRMLS_CC);
+        retval->TakeOwnership();
+      } else if (which == EnumOp::ONLY_INDEX) {
+        // XXX Not supported by standard ArrayAccess API.
+        // XXX Define our own Js\Array interface, and try to call
+        //     a `getLength` method in it, iff the object implements
+        //     Js\Array?
+        retval->SetInt(0);
+      }
+    } else if (op == PropertyOp::SETTER && which == EnumOp::ONLY_INDEX) {
+      // XXX Not supported by standard ArrayAccess API.
+      // XXX Define our own Js\Array interface, and try to call
+      //     a `setLength` method in it, iff the object implements
+      //     Js\Array?
+      retval->Set(m, value TSRMLS_CC);
+      retval->TakeOwnership();
+    }
+  } else {
+    assert(arr.IsArray());
+    HashTable *arrht = Z_ARRVAL_P(arr.Ptr());
+    if (op == PropertyOp::GETTER) {
+      if (which == EnumOp::ALL) {
+        // This is "number of items" (including string keys), not "max index"
+        retval->SetInt(zend_hash_num_elements(arrht));
+        return;
+      } else if (which == EnumOp::ONLY_INDEX) {
+        retval->SetInt(zend_hash_next_free_element(arrht));
+      }
+    } else if (op == PropertyOp::SETTER && which == EnumOp::ONLY_INDEX) {
+        if (!value.IsLong()) {
+          // convert to int
+          const_cast<ZVal&>(value).Separate();
+          convert_to_long(value.Ptr());
+        }
+        if (value.IsLong() && Z_LVAL_P(value.Ptr()) >= 0) {
+          ulong nlen = Z_LVAL_P(value.Ptr());
+          ulong olen = zend_hash_next_free_element(arrht);
+          if (nlen < olen) {
+            // We have to iterate here, rather unfortunate.
+            // XXX We could look at zend_hash_num_elements() and
+            // iterate over the elements if num_elements < (olen - nlen)
+            for (ulong i = nlen; i < olen; i++) {
+              zend_hash_index_del(arrht, i);
+            }
+          }
+          // This is quite dodgy, since we're going to write the
+          // nNextFreeElement field directly.  Perhaps not portable!
+          arrht->nNextFreeElement = nlen;
+        }
+        retval->Set(m, value TSRMLS_CC);
+        retval->TakeOwnership();
+    }
+  }
 }
 
 

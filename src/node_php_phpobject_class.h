@@ -67,9 +67,19 @@ class PhpObject : public Nan::ObjectWrap {
 
   // PHP-side array access
   static void ArrayOp(PhpObjectMapper *m, PropertyOp op,
-                      const ZVal &arr, const ZVal &name, const ZVal &value,
+                      const ZVal &arr, bool is_array_access,
+                      const ZVal &name, const ZVal &value,
                       Value *retval, Value *exception TSRMLS_DC);
-  static void ArrayEnum(PhpObjectMapper *m, EnumOp op, const ZVal &arr,
+  static void ArrayAccessOp(PhpObjectMapper *m, PropertyOp op,
+                            const ZVal &arr,
+                            const ZVal &name, const ZVal &value,
+                            Value *retval, Value *exception TSRMLS_DC);
+  static void ArrayEnum(PhpObjectMapper *m, EnumOp op,
+                        const ZVal &arr, bool is_array_access,
+                        Value *retval, Value *exception TSRMLS_DC);
+  static void ArraySize(PhpObjectMapper *m, PropertyOp op, EnumOp which,
+                        const ZVal &arr, bool is_array_access,
+                        const ZVal &value,
                         Value *retval, Value *exception TSRMLS_DC);
 
   // Stash away the constructor's template for later use.
