@@ -50,10 +50,18 @@ describe('Feeding POST data from JS to PHP', function() {
     ]);
   };
   it('should handle a basic GET request', function() {
+    var serverOk = false;
     return makeServer({
       path: '/index.html?abc=def&foo=bar+bat',
     }, {
-      source: 'var_dump($_GET)',
+      // We have to dereference $_SERVER in order to trigger the
+      // _testInitServer method.
+      source: 'var_dump($_SERVER["CONTEXT"] ? $_GET : $_GET)',
+      _testInitServer: function(server) {
+        serverOk = (server.REQUEST_METHOD === 'GET' &&
+        server.REQUEST_URI === '/index.html?abc=def&foo=bar+bat' &&
+        server.QUERY_STRING === 'abc=def&foo=bar+bat');
+      },
     }).spread(function(phpvalue, output, response) {
       should(phpvalue).be.null();
       output.should.be.equal([
@@ -68,9 +76,11 @@ describe('Feeding POST data from JS to PHP', function() {
       response.should.be.html();
       response.should.have.status(200);
       response.should.have.header('x-powered-by');
+      serverOk.should.be.true();
     });
   });
   it('should handle a basic POST request', function() {
+    var serverOk = false;
     var postData = querystring.stringify({
       msg: 'Hello World!',
       foo: 'bar bat',
@@ -83,7 +93,14 @@ describe('Feeding POST data from JS to PHP', function() {
         'Content-Length': postData.length,
       },
     }, {
-      source: 'var_dump($_POST)',
+      // We have to dereference $_SERVER in order to trigger the
+      // _testInitServer method.
+      source: 'var_dump($_SERVER["CONTEXT"] ? $_POST : $_POST)',
+      _testInitServer: function(server) {
+        serverOk = (server.REQUEST_METHOD === 'POST' &&
+        server.REQUEST_URI === '/post' &&
+        server.QUERY_STRING === '');
+      },
     }, function(request) {
       request.write(postData);
     }).spread(function(phpvalue, output, response) {
@@ -100,9 +117,11 @@ describe('Feeding POST data from JS to PHP', function() {
       response.should.be.html();
       response.should.have.status(200);
       response.should.have.header('x-powered-by');
+      serverOk.should.be.true();
     });
   });
   it('should handle cookies', function() {
+    var serverOk = false;
     return makeServer({
       path: '/cookie/test',
       headers: {
@@ -116,6 +135,8 @@ describe('Feeding POST data from JS to PHP', function() {
     }, {
       source: [
         'call_user_func(function() {',
+        '  # ensure that _testInitServer is triggered',
+        '  $_SERVER["CONTEXT"];',
         '  # ensure we handle duplicate headers sent from PHP',
         '  setcookie("a", "b");',
         '  setcookie("c", "d", 0, "/");',
@@ -123,6 +144,11 @@ describe('Feeding POST data from JS to PHP', function() {
         '  return 1;',
         '})',
       ].join('\n'),
+      _testInitServer: function(server) {
+        serverOk = (server.REQUEST_METHOD === 'GET' &&
+        server.REQUEST_URI === '/cookie/test' &&
+        server.QUERY_STRING === '');
+      },
     }).spread(function(phpvalue, output, response) {
       should(phpvalue).be.equal(1);
       output.should.be.equal([
@@ -142,6 +168,7 @@ describe('Feeding POST data from JS to PHP', function() {
         'a=b',
         'c=d; path=/',
       ]);
+      serverOk.should.be.true();
     });
   });
 });

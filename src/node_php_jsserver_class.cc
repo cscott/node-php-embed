@@ -90,7 +90,6 @@ ZEND_END_ARG_INFO()
 
 PHP_METHOD(JsServer, __get) {
   TRACE(">");
-#if 0  // XXX disabled, since it seems to be corrupting memory.
   zval *member;
   PARSE_PARAMS(__get, "z/", &member);
   convert_to_string(member);
@@ -101,13 +100,11 @@ PHP_METHOD(JsServer, __get) {
       zend_symtable_find(Z_ARRVAL_P(obj->track_vars_array),
                          Z_STRVAL_P(member), Z_STRLEN_P(member) + 1,
                          reinterpret_cast<void**>(&retval))) {
-    *return_value_ptr = EG(uninitialized_zval_ptr);
+    *return_value_ptr = return_value = EG(uninitialized_zval_ptr);
   } else {
-      *return_value_ptr = *retval;
+    *return_value_ptr = return_value = *retval;
   }
-#else
-  RETVAL_BOOL(true);
-#endif
+  Z_ADDREF_P(return_value);
   TRACE("<");
 }
 
