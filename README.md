@@ -345,10 +345,12 @@ export CXX="g++-5"
 export CC="gcc-5"
 ```
 On Mac OSX, you need to limit support to OS X 10.7 and above in order
-to get C++11 support.  Something like the following should work:
+to get C++11 support.  You will also need to install `libicu`.
+Something like the following should work:
 
 ```sh
-export MACOSX_DEPLOYMENT_TARGET=10.7 ;
+export MACOSX_DEPLOYMENT_TARGET=10.7
+brew install icu4c
 ```
 
 Developers hacking on the code will probably want to use:

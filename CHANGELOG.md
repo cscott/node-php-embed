@@ -1,5 +1,6 @@
 # php-embed x.x.x (not yet released)
 * Add and enable Opcache extension for opcode caching (performance).
+* Add and enable Intl extension (fast internationalization support).
 
 # php-embed 0.5.2 (2015-11-03)
 * Ensure PHP private properties aren't writable.

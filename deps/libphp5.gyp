@@ -1,7 +1,5 @@
 {
   'includes': [ 'common-libphp5.gypi' ],
-  # these are libraries not needed on osx
-  'variables': { 'libcrypt%':'-lcrypt -lrt -lnsl' },
   'target_defaults': {
     'default_configuration': 'Release',
     'configurations': {
@@ -45,12 +43,30 @@
         '-stdlib=libc++'
       ],
     },
+    'variables': {
+      'configure_options': [],
+    },
     'conditions': [
       ['OS == "win"', {
         'defines': [
           'WIN32'
         ],
-      }]
+      }],
+      ['OS == "linux"', {
+        'link_settings': {
+          # these are libraries not needed on osx
+          'libraries': [ '-lcrypt', '-lrt', '-lnsl' ],
+        },
+      }],
+      ['OS == "mac"', {
+        'variables': {
+          'configure_options': ['--with-icu-dir=/usr/local/opt/icu4c/'],
+        },
+        'link_settings': {
+          'ldflags': [ '-L/usr/local/opt/icu4c/lib' ],
+          'libraries': [ '-L/usr/local/opt/icu4c/lib', '-liconv' ],
+        }
+      }],
     ],
   },
 
@@ -87,9 +103,11 @@
                 '--enable-opcache=shared',
                 # mediawiki says this is necessary
                 '--with-zlib', '--enable-mbstring',
+                # and this is recommended:
+                '--enable-intl',
                 # turn off some unnecessary bits
                 '--disable-cli', '--disable-cgi',
-                '<@(configure_options)'
+                '>@(configure_options)'
           ]
         }
       ]
@@ -135,10 +153,14 @@
         ],
       },
       'link_settings': {
+        'ldflags': [],
         'libraries': [
             '<(SHARED_INTERMEDIATE_DIR)/build/lib/libphp5.a',
             # these match `php-config --libs`
-            '<(libcrypt) -lresolv -lm -ldl -lxml2'
+            '-lresolv -lstdc++ -lz -lm -ldl -lxml2',
+            # these match `icu-config --ldflags`, and are needed because
+            # we are building the Intl extension.
+            '-licui18n -licuuc -licudata -licuio'
         ]
       },
       'sources': [

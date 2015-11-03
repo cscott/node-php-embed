@@ -92,6 +92,12 @@ before_install:
 - if test "$TRAVIS_OS_NAME $CC" = "osx clang" ; then
     export MACOSX_DEPLOYMENT_TARGET=10.7 ;
   fi
+# we need to install libicu on os x
+- |
+  if test "$TRAVIS_OS_NAME" = "osx"; then
+    brew update | head ;
+    brew install icu4c ;
+  fi
 # check if tag exists and matches package.json
 - scripts/validate_tag.sh
 - echo $NODE_VERSION
@@ -116,11 +122,10 @@ before_script:
 script:
 - node --version
 - npm --version
-- LIBCRYPT=''
-- if test "$TRAVIS_OS_NAME" = "osx"; then LIBCRYPT="--libcrypt=-liconv" ; fi
 - DEBUG=''
 - if test "$RELEASE" = "false"; then DEBUG='--debug' ; fi
-- if test -z "$EXTERNAL_LIBPHP" ; then npm install --build-from-source $LIBCRYPT $DEBUG; else npm install --build-from-source --libphp5=external $DEBUG; fi
+- if false ; then export V=1 ; fi # Useful when debugging build/link failures.
+- if test -z "$EXTERNAL_LIBPHP" ; then npm install --build-from-source $DEBUG; else npm install --build-from-source --libphp5=external $DEBUG; fi
 - node-pre-gyp package testpackage
 # OSX malloc debugging
 - |
