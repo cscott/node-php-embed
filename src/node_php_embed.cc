@@ -5,6 +5,8 @@
 // Copyright (c) 2015 C. Scott Ananian <cscott@cscott.net>
 #include "src/node_php_embed.h"
 
+#include <dlfcn.h>  // for dlopen()
+
 #include <string>
 #include <unordered_map>
 
@@ -37,6 +39,7 @@ using node_php_embed::node_php_jsobject_call_method;
 static void node_php_embed_ensure_init(void);
 
 static char *node_php_embed_startup_file;
+static char *node_php_embed_extension_dir;
 
 ZEND_DECLARE_MODULE_GLOBALS(node_php_embed);
 
@@ -45,6 +48,25 @@ extern zend_module_entry node_php_embed_module_entry;
 
 static int node_php_embed_startup(sapi_module_struct *sapi_module) {
   TRACE(">");
+  // Remove the "hardcoded INI" entries
+  if (php_embed_module.ini_entries) {
+      free(php_embed_module.ini_entries);
+  }
+  php_embed_module.ini_entries = NULL;
+
+#ifndef EXTERNAL_LIBPHP5
+  // Add an appropriate "extension_dir" directive.
+  // (Unless we're linking against an external libphp5.so, in which case
+  // we'll assume it knows best where its own extensions are.)
+  if (node_php_embed_extension_dir) {
+      std::string ini("extension_dir=");
+      ini += node_php_embed_extension_dir;
+      ini += "\n";
+      php_embed_module.ini_entries = strdup(ini.c_str());
+  }
+#endif
+
+  // Proceed with startup.
   if (php_module_startup(sapi_module, &node_php_embed_module_entry, 1) ==
       FAILURE) {
     return FAILURE;
@@ -241,6 +263,17 @@ NAN_METHOD(setStartupFile) {
   TRACE("<");
 }
 
+NAN_METHOD(setExtensionDir) {
+  TRACE(">");
+  REQUIRE_ARGUMENT_STRING(0, ext_dir);
+  if (node_php_embed_extension_dir) {
+    free(node_php_embed_extension_dir);
+  }
+  node_php_embed_extension_dir =
+    (*ext_dir) ? strdup(*ext_dir) : nullptr;
+  TRACE("<");
+}
+
 NAN_METHOD(request) {
   TRACE(">");
   REQUIRE_ARGUMENTS(4);
@@ -333,18 +366,36 @@ static void node_php_embed_ensure_init(void) {
   }
   TRACE(">");
   node_php_embed_inited = true;
+  // Module must be opened with RTLD_GLOBAL so that PHP can later
+  // load extensions.  So re-invoke dlopen to twiddle the flags.
+  if (node_php_embed_extension_dir) {
+      std::string path(node_php_embed_extension_dir);
+      path += "/node_php_embed.node";
+      dlopen(path.c_str(), RTLD_LAZY|RTLD_GLOBAL|RTLD_NOLOAD);
+  }
+  // We also have to lie about the sapi name (!) in order to get opcache
+  // to start up.  (Well, we could also patch PHP to fix this.)
+  char *old_name = php_embed_module.name;
+  // opcache is unhappy if we deallocate this, so keep it around forever-ish.
+  static char new_name[] = { "cli" };
+  php_embed_module.name = new_name;
+
   php_embed_init(0, nullptr PTSRMLS_CC);
   // Shutdown the initially-created request; we'll create our own request
   // objects inside PhpRequestWorker.
   php_request_shutdown(nullptr);
   PhpRequestWorker::CheckRequestInfo(TSRMLS_C);
   node::AtExit(ModuleShutdown, nullptr);
+  // Reset the SAPI module name now that all extensions (opcache in
+  // particular) are loaded.
+  php_embed_module.name = old_name;
   TRACE("<");
 }
 
 NAN_MODULE_INIT(ModuleInit) {
   TRACE(">");
   node_php_embed_startup_file = NULL;
+  node_php_embed_extension_dir = NULL;
   php_embed_module.php_ini_path_override = nullptr;
   php_embed_module.php_ini_ignore = true;
   php_embed_module.php_ini_ignore_cwd = true;
@@ -367,6 +418,7 @@ NAN_MODULE_INIT(ModuleInit) {
   // Export functions
   NAN_EXPORT(target, setIniPath);
   NAN_EXPORT(target, setStartupFile);
+  NAN_EXPORT(target, setExtensionDir);
   NAN_EXPORT(target, request);
   TRACE("<");
 }

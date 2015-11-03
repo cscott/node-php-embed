@@ -10,12 +10,19 @@
       'conditions': [
         ['libphp5 != "internal"', {
             'libraries': [ "<!@(php-config --ldflags) -lphp5" ],
-            'cflags': [ "<!@(php-config --includes)" ]
+            'cflags': [ "<!@(php-config --includes)" ],
+            'defines': [ 'EXTERNAL_LIBPHP5' ],
+            'direct_dependent_settings': {
+              'php_module_files': [],
+            },
         },
         {
             'dependencies': [
               'deps/libphp5.gyp:libphp5'
-            ]
+            ],
+            'export_dependent_settings': [
+              'deps/libphp5.gyp:libphp5'
+            ],
         }
         ]
       ],
@@ -45,7 +52,10 @@
       "dependencies": [ "<(module_name)" ],
       "copies": [
         {
-          "files": [ "<(PRODUCT_DIR)/<(module_name).node" ],
+          "files": [
+            "<(PRODUCT_DIR)/<(module_name).node",
+            ">@(_php_module_files)"
+          ],
           "destination": "<(module_path)"
         }
       ]
