@@ -517,7 +517,7 @@ ZEND_END_ARG_INFO()
 PHP_METHOD(JsObject, __tostring) {
   // Implement `__tostring` by calling JS `toString` method.
   // Use plain zval to avoid allocating copy of method name
-  zval method; ZVAL_STRINGL(&method, "toString", 8, 0);
+  zval method; INIT_ZVAL(method); ZVAL_STRINGL(&method, "toString", 8, 0);
   zval *args = nullptr;
   call_user_function(EG(function_table), &this_ptr, &method,
                      return_value, 0, &args TSRMLS_CC);

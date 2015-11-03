@@ -295,7 +295,7 @@ class MessageToJs : public Message {
       // asynchronously from the PHP side.
       ZVal closureRetval{ZEND_FILE_LINE_C};
       // Use plain zval to avoid allocating copy of method name.
-      zval method; ZVAL_STRINGL(&method, "call", 4, 0);
+      zval method; INIT_ZVAL(method); ZVAL_STRINGL(&method, "call", 4, 0);
       zval *args[] = { e.Ptr(), r.Ptr() };
       if (FAILURE == call_user_function(EG(function_table),
                                         php_callback_.PtrPtr(), &method,

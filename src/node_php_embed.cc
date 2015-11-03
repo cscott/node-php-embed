@@ -61,7 +61,7 @@ static int node_php_embed_ub_write(const char *str,
   ZVal stream{ZEND_FILE_LINE_C}, retval{ZEND_FILE_LINE_C};
   worker->GetStream().ToPhp(channel, stream TSRMLS_CC);
   // Use plain zval to avoid allocating copy of method name.
-  zval method; ZVAL_STRINGL(&method, "write", 5, 0);
+  zval method; INIT_ZVAL(method); ZVAL_STRINGL(&method, "write", 5, 0);
   // Special buffer type to pass `str` as a node buffer and avoid copying.
   zval buffer, *args[] = { &buffer }; INIT_ZVAL(buffer);
   node_php_embed::node_php_jsbuffer_create(&buffer, str, str_length,
@@ -89,7 +89,7 @@ static void node_php_embed_flush(void *server_context) {
   ZVal stream{ZEND_FILE_LINE_C}, retval{ZEND_FILE_LINE_C};
   worker->GetStream().ToPhp(channel, stream TSRMLS_CC);
   // Use plain zval to avoid allocating copy of method name.
-  zval method; ZVAL_STRINGL(&method, "write", 5, 0);
+  zval method; INIT_ZVAL(method); ZVAL_STRINGL(&method, "write", 5, 0);
   // Special buffer type to pass `str` as a node buffer and avoid copying.
   zval buffer; INIT_ZVAL(buffer);
   node_php_embed::node_php_jsbuffer_create(&buffer, "", 0,
@@ -123,7 +123,7 @@ static void node_php_embed_send_header(sapi_header_struct *sapi_header,
   // Use plain zval to avoid allocating copy of method name.
   // The "sendHeader" method is a special JS-side method to translate
   // headers into node.js format.
-  zval method; ZVAL_STRINGL(&method, "sendHeader", 10, 0);
+  zval method; INIT_ZVAL(method); ZVAL_STRINGL(&method, "sendHeader", 10, 0);
   // Special buffer type to pass `str` as a node buffer and avoid copying.
   zval buffer, *args[] = { &buffer }; INIT_ZVAL(buffer);
   if (sapi_header) {  // NULL is passed to indicate "last call"
@@ -152,8 +152,8 @@ static int node_php_embed_read_post(char *buffer, uint count_bytes TSRMLS_DC) {
   ZVal stream{ZEND_FILE_LINE_C}, retval{ZEND_FILE_LINE_C};
   worker->GetStream().ToPhp(channel, stream TSRMLS_CC);
   // Use plain zval to avoid allocating copy of method name.
-  zval method; ZVAL_STRINGL(&method, "read", 4, 0);
-  zval size; ZVAL_LONG(&size, count_bytes);
+  zval method; INIT_ZVAL(method); ZVAL_STRINGL(&method, "read", 4, 0);
+  zval size; INIT_ZVAL(size); ZVAL_LONG(&size, count_bytes);
   // Create the special JsWait object.
   zval wait; INIT_ZVAL(wait);
   node_php_embed::node_php_jswait_create(&wait TSRMLS_CC);

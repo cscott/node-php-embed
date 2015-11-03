@@ -106,7 +106,7 @@ PHP_METHOD(JsServer, __get) {
       *return_value_ptr = *retval;
   }
 #else
-  ZVAL_BOOL(return_value, true);
+  RETVAL_BOOL(true);
 #endif
   TRACE("<");
 }
@@ -125,7 +125,7 @@ PHP_METHOD(JsServer, __set) {
   // This is the whole point of this class!
   php_register_variable_ex(Z_STRVAL_P(member), value.Transfer(TSRMLS_C),
                            obj->track_vars_array TSRMLS_CC);
-  ZVAL_BOOL(return_value, true);
+  RETVAL_BOOL(true);
   TRACE("<");
 }
 
