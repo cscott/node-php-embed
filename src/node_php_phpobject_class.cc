@@ -645,13 +645,15 @@ class PhpObject::PhpInvokeMsg : public MessageToPhp {
  public:
   PhpInvokeMsg(ObjectMapper *m, Nan::Callback *callback, bool is_sync,
                objid_t obj, v8::Local<v8::String> method,
-               const Nan::FunctionCallbackInfo<v8::Value> &info)
+               const Nan::FunctionCallbackInfo<v8::Value> *info)
       : MessageToPhp(m, callback, is_sync), method_(m, method),
-        argc_(info.Length()), argv_(Value::NewArray(m, info)),
+        argc_(info->Length()), argv_(),
         should_convert_array_to_iterator_(false) {
     obj_.SetJsObject(obj);
+    argv_.SetArrayByValue(argc_, [m, info](uint32_t idx, Value& v) {
+      v.Set(m, (*info)[idx]);
+    });
   }
-  ~PhpInvokeMsg() override { delete[] argv_; }
   inline bool should_convert_array_to_iterator() {
     return should_convert_array_to_iterator_;
   }
@@ -803,7 +805,7 @@ class PhpObject::PhpInvokeMsg : public MessageToPhp {
   Value obj_;
   Value method_;
   int argc_;
-  Value *argv_;
+  Value argv_;
   bool should_convert_array_to_iterator_;
 };
 
@@ -824,7 +826,7 @@ void PhpObject::MethodThunk_(v8::Local<v8::String> method,
     return Nan::ThrowError("Invocation after PHP request has completed.");
   }
   PhpInvokeMsg msg(channel_, nullptr, true,  // Sync call.
-                   id_, method, info);
+                   id_, method, &info);
   channel_->SendToPhp(&msg, MessageFlags::SYNC);
   THROW_IF_EXCEPTION("PHP exception thrown during method invocation", /* */);
   if (msg.retval().IsEmpty()) {

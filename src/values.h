@@ -506,22 +506,6 @@ class Value {
       : type_(VALUE_EMPTY), empty_(0) {
     Set(m, v TSRMLS_CC);
   }
-  template <typename T>
-  static Value *NewArray(PhpObjectMapper *m, int argc, T* argv TSRMLS_DC) {
-    Value *result = new Value[argc];
-    for (int i = 0; i < argc; i++) {
-      result[i].Set(m, argv[i] TSRMLS_CC);
-    }
-    return result;
-  }
-  static Value *NewArray(JsObjectMapper *m,
-                         const Nan::FunctionCallbackInfo<v8::Value> &info) {
-    Value *result = new Value[info.Length()];
-    for (int i = 0; i < info.Length(); i++) {
-      result[i].Set(m, info[i]);
-    }
-    return result;
-  }
   void Set(JsObjectMapper *m, v8::Local<v8::Value> v) {
     if (v->IsUndefined() || v->IsNull()) {
       /* Fall through to the default case. */
