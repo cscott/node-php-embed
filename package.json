@@ -1,7 +1,7 @@
 {
   "name": "php-embed",
   "description": "Bidirectional interoperability between PHP and Node.js in a single process",
-  "version": "0.5.2",
+  "version": "0.5.2-git",
   "homepage": "http://github.com/cscott/node-php-embed",
   "author": "C. Scott Ananian <cscott@cscott.net>",
   "main": "lib/index",

@@ -1,3 +1,5 @@
+# php-embed x.x.x (not yet released)
+
 # php-embed 0.5.2 (2015-11-03)
 * Ensure PHP private properties aren't writable.
 * Implement `__toString` magic method on wrapped JavaScript objects.
