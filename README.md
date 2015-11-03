@@ -164,8 +164,32 @@ of reading the file.
 Note that calls using `Js\Wait` block the PHP thread but do not
 block the node thread.
 
+## class `Js\ByRef`
+Arguments are passed to JavaScript functions by value, as is the
+default in PHP.  This class allows you to pass arguments by reference;
+specifically array values (since objects are effectively passed by
+reference already, and it does not apply to primitive values like
+strings and integers).  Given the following JavaScript function
+make available to PHP as `$jsfunc`:
+```js
+function jsfunc(arr) {
+  Array.prototype.push.call(arr, 4);
+}
+```
+
+You could call in from PHP as follows:
+```php
+$a = array(1, 2, 3);
+$jsfunc($a);
+var_dump($a);  # would still print (1, 2, 3)
+
+$jsfunc(new Js\ByRef($a));
+var_dump($a);  # now this would print (1, 2, 3, 4)
+```
+
 # Javascript API
 
+## PHP objects
 The JavaScript `in` operator, when applied to a wrapped PHP object,
 works the same as the PHP [`isset()`] function.  Similarly, when applied
 to a wrapped PHP object, JavaScript `delete` works like PHP [`unset()`].
@@ -213,6 +237,48 @@ php.request({
   }
 }).done();
 ```
+
+## PHP arrays
+
+PHP arrays are a sort of fusion of JavaScript arrays and objects.
+They can store indexed data and have a sort of automatically-updated
+`length` property, like JavaScript arrays, but they can also store
+string keys like JavaScript objects.
+
+In JavaScript, we've decided to expose arrays as
+[array-like] [`Map`]s.
+
+That is, they have the
+[`get`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map/get),
+[`set`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map/set),
+[`delete`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map/delete),
+[`keys`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map/keys), and
+[`size`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map/size)
+methods of [`Map`].  These work as you'd expect, and access *all* the
+values in the PHP array, with both indexed and string keys.
+
+In addition, as a convenience, they make the *indexed* keys (and only
+the indexed keys) available as properties directly on the object,
+and export an appropriate `length` field.  This lets you use them
+directly in many JavaScript functions which accept "array-like"
+objects.  For example, you can convert them easily to a "true"
+JavaScript array with [`Array.from`].
+
+Arrays like objects are live-mapped: changes apply directly to
+the PHP object they wrap.  However, note that arrays are by default
+passed *by value* to JavaScript functions; you may need to
+use `Js\ByRef` (see above) in order to have changes you make
+on the JavaScript side affect the value of a PHP variable.
+
+## PHP ArrayAccess/Countable
+PHP objects which implement [`ArrayAccess`] and [`Countable`] are treated
+as PHP arrays, with the accessor methods described above.  However
+note that the `length` property is fixed to `0` on these objects,
+since there's no way to get a count of only the indexed keys
+in the array ([`Countable`] gives the count of *all* the keys,
+counting both indexed and string keys).
+
+## Blocking the JavaScript event loop
 
 At the moment, all property accesses and method invocations from
 JavaScript to PHP are done synchronously; that is, they block the
@@ -353,6 +419,12 @@ Copyright (c) 2015 C. Scott Ananian.
 [`fs.readFile`]: https://nodejs.org/api/fs.html#fs_fs_readfile_filename_options_callback
 [`isset()`]: http://php.net/manual/en/function.isset.php
 [`unset()`]: http://php.net/manual/en/function.unset.php
+[`ArrayAccess`]: http://php.net/manual/en/class.arrayaccess.php
+[`Countable`]: http://php.net/manual/en/class.countable.php
+
+[array-like]: http://www.2ality.com/2013/05/quirk-array-like-objects.html
+[`Map`]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map
+[`Array.from`]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/from
 
 [NPM1]: https://nodei.co/npm/php-embed.png
 [NPM2]: https://nodei.co/npm/php-embed/

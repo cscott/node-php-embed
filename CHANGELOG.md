@@ -1,4 +1,12 @@
 # php-embed x.x.x (not yet released)
+* Ensure PHP private properties aren't writable.
+* Implement `__toString` magic method on wrapped JavaScript objects.
+* Include stack trace when JavaScript exceptions are thrown into PHP.
+* Implement wrapping of PHP arrays and objects implementing
+  `ArrayAccess` and `Countable`.
+* Add `Js\ByRef` to allow arrays to be passed by reference to
+  JavaScript functions.
+* Add binaries for node 5.0.0.
 
 # php-embed 0.5.1 (2015-10-29)
 * Support passing cookies and POST data to PHP request.
