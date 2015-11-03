@@ -12,7 +12,8 @@
 #else
 # include <sys/syscall.h>
 # define NPE_THREADFMT "[%lu] "
-# define NPE_THREADID syscall(SYS_gettid),
+# define NPE_THREADID \
+    (unsigned long) syscall(SYS_gettid),  // NOLINT(runtime/int)
 #endif
 
 #define NPE_ERRORX(msg, ...) \
