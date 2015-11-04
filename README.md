@@ -382,6 +382,10 @@ ignored in the `valgrind` report.
 
 * [C. Scott Ananian](https://github.com/cscott)
 
+Many thanks to [Sara Golemon](https://github.com/sgolemon) without whose
+[book](http://www.amazon.com/Extending-Embedding-PHP-Sara-Golemon/dp/067232704X/)
+this project would have been impossible.
+
 # Related projects
 
 * [`mediawiki-express`](https://github.com/cscott/node-mediawiki-express)
