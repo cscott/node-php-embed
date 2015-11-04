@@ -51,3 +51,12 @@ var c = child_process.spawn(path.resolve(confdir, './configure'), rest, {
   cwd: confdir,
   stdio: 'inherit'
 });
+c.on('close', function(code) {
+	if (code === 0) { return; }
+
+	// In order to diagnose the failure, dump the config log.
+	console.log('\n\n\nConfig log:');
+	var fs = require('fs');
+	console.log(fs.readFileSync(path.join(confdir, 'config.log'), 'utf8'));
+	process.exit(code);
+});
