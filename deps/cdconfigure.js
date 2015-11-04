@@ -6,9 +6,20 @@ var os = require('os');
 process.argv.shift(); // take off the 'node'
 process.argv.shift(); // take off 'cdconfigure.js'
 var confdir = process.argv.shift();
+var rebuild_configure = (confdir === '--rebuild');
+if (rebuild_configure) { confdir = process.argv.shift(); }
 console.log("Changing to", confdir);
 
 var rest = process.argv.slice(0);
+
+if (rebuild_configure) {
+  child_process.spawnSync(
+    path.resolve(confdir, './buildconf'),
+    ['--force'], {
+      cwd: confdir,
+      stdio: 'inherit'
+    });
+}
 
 //console.log(os.arch());
 //console.log(process.version, process.arch, process.config.variables.target_arch);

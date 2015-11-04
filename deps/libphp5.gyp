@@ -87,15 +87,26 @@
           'action': ['python','./extract.py','./php-<@(libphp5_version).tar.gz','<(SHARED_INTERMEDIATE_DIR)', 'php-<@(libphp5_version)/configure']
         },
         {
+          'action_name': 'unpack_apcu_dep',
+          'inputs': [
+            './apcu-<@(apcu_version).tgz'
+          ],
+          'outputs': [
+            '<(SHARED_INTERMEDIATE_DIR)/php-<@(libphp5_version)/ext/apcu/config.m4'
+          ],
+          'action': ['python','./extract.py','./apcu-<@(apcu_version).tgz','<(SHARED_INTERMEDIATE_DIR)/php-<@(libphp5_version)/ext', 'apcu-<@(apcu_version)/config.m4', 'apcu-<@(apcu_version)', 'apcu']
+        },
+        {
           'action_name': 'configure_libphp5',
           'inputs': [
-            '<(SHARED_INTERMEDIATE_DIR)/php-<@(libphp5_version)/configure'
+            '<(SHARED_INTERMEDIATE_DIR)/php-<@(libphp5_version)/configure',
+            '<(SHARED_INTERMEDIATE_DIR)/php-<@(libphp5_version)/ext/apcu/config.m4'
           ],
           'outputs': [
             '<(SHARED_INTERMEDIATE_DIR)/php-<@(libphp5_version)/Makefile'
           ],
           'action': [
-                './cdconfigure.js',
+                './cdconfigure.js', '--rebuild',
                 '<(SHARED_INTERMEDIATE_DIR)/php-<@(libphp5_version)/',
                 '--enable-maintainer-zts', '--enable-embed=static',
                 '--prefix', '<(SHARED_INTERMEDIATE_DIR)/build',
@@ -104,7 +115,7 @@
                 # mediawiki says this is necessary
                 '--with-zlib', '--enable-mbstring',
                 # and this is recommended:
-                '--enable-intl',
+                '--enable-intl', '--enable-apcu',
                 # turn off some unnecessary bits
                 '--disable-cli', '--disable-cgi',
                 '>@(configure_options)'
