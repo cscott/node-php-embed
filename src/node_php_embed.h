@@ -7,7 +7,7 @@
 #define NODE_PHP_EMBED_NODE_PHP_EMBED_H_
 
 // This should match the version declared in package.json.
-#define NODE_PHP_EMBED_VERSION "0.5.2-git"
+#define NODE_PHP_EMBED_VERSION "0.5.3"
 
 extern "C" {
 #include "TSRM/TSRM.h"
