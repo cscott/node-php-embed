@@ -1,4 +1,4 @@
-# php-embed x.x.x (not yet released)
+# php-embed 0.5.3 (2015-11-04)
 * Add and enable Opcache extension for opcode caching (performance).
 * Add and enable Intl extension (fast internationalization support).
 * Add and enable APCu extension for object caching (performance).
