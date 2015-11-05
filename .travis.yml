@@ -38,19 +38,19 @@ matrix:
      - os: linux
        compiler: clang
        env: NODE_VERSION="5.0.0" PUBLISHABLE=false RELEASE=true
-     - os: linux
-       compiler: clang
-       env: NODE_VERSION="4.2.1" PUBLISHABLE=false
+#     - os: linux
+#       compiler: clang
+#       env: NODE_VERSION="4.2.1" PUBLISHABLE=false
      - os: linux
        env: NODE_VERSION="4.2.1" BUILD_X86=true # node abi 46
-     - os: linux
-       compiler: clang
-       env: NODE_VERSION="iojs-v3.3.1" PUBLISHABLE=false
+#     - os: linux
+#       compiler: clang
+#       env: NODE_VERSION="iojs-v3.3.1" PUBLISHABLE=false
      - os: linux
        env: NODE_VERSION="iojs-v3.3.1" BUILD_X86=true # node abi 45
-     - os: linux
-       compiler: clang
-       env: NODE_VERSION="iojs-v2.4.0" PUBLISHABLE=false
+#     - os: linux
+#       compiler: clang
+#       env: NODE_VERSION="iojs-v2.4.0" PUBLISHABLE=false
      - os: linux
        env: NODE_VERSION="iojs-v2.4.0" BUILD_X86=true # node abi 44
 # disabled because libphp5-embed package is not on whitelist yet
