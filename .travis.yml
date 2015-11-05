@@ -66,6 +66,10 @@ matrix:
      - os: osx
        compiler: clang
        env: NODE_VERSION="5.0.0" # node abi 47
+     # Test in release mode, not just debug mode.
+     - os: osx
+       compiler: clang
+       env: NODE_VERSION="5.0.0" PUBLISHABLE=false RELEASE=true
      - os: osx
        compiler: clang
        env: NODE_VERSION="4.2.1" # node abi 46
@@ -123,7 +127,7 @@ script:
 - node --version
 - npm --version
 - DEBUG=''
-- if test "$RELEASE" = "false"; then DEBUG='--debug' ; fi
+- if test "$RELEASE" = "false"; then DEBUG='--debug --libicu=external' ; fi
 - if false ; then export V=1 ; fi # Useful when debugging build/link failures.
 - if test -z "$EXTERNAL_LIBPHP" ; then npm install --build-from-source $DEBUG; else npm install --build-from-source --libphp5=external $DEBUG; fi
 - node-pre-gyp package testpackage

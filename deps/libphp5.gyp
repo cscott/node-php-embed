@@ -1,5 +1,9 @@
 {
   'includes': [ 'common-libphp5.gypi' ],
+  'variables': {
+      'libicu%':'internal',
+      'iculibs%':[],
+  },
   'target_defaults': {
     'default_configuration': 'Release',
     'configurations': {
@@ -59,12 +63,18 @@
         },
       }],
       ['OS == "mac"', {
+        'link_settings': {
+          'libraries': [ '-liconv' ],
+        },
+      }],
+      ['libicu == "internal"', {
+      }, 'OS == "mac"', {
         'variables': {
           'configure_options': ['--with-icu-dir=/usr/local/opt/icu4c/'],
         },
         'link_settings': {
           'ldflags': [ '-L/usr/local/opt/icu4c/lib' ],
-          'libraries': [ '-L/usr/local/opt/icu4c/lib', '-liconv' ],
+          'libraries': [ '-L/usr/local/opt/icu4c/lib' ],
         }
       }],
     ],
@@ -75,6 +85,19 @@
       'target_name': 'action_before_build',
       'type': 'none',
       'hard_dependency': 1,
+      'conditions': [
+        ['libicu == "internal"', {
+          'dependencies': [
+            'libicu.gyp:libicu'
+          ],
+          'export_dependent_settings': [
+            'libicu.gyp:libicu'
+          ],
+          'variables': {
+            'configure_options': ['--with-icu-dir=<(SHARED_INTERMEDIATE_DIR)/build'],
+          },
+        }]
+      ],
       'actions': [
         {
           'action_name': 'unpack_libphp5_dep',
@@ -128,6 +151,9 @@
       'dependencies': [
         'action_before_build'
       ],
+      'export_dependent_settings': [
+        'action_before_build'
+      ],
       'actions': [
         {
           'action_name': 'build_libphp5',
@@ -148,6 +174,22 @@
       'type': 'none',
       'dependencies': [
         'build'
+      ],
+      'conditions': [
+        ['libicu == "internal"', {
+          'variables': {
+            'iculibs': [
+              '<(SHARED_INTERMEDIATE_DIR)/build/lib/libicui18n.a',
+              '<(SHARED_INTERMEDIATE_DIR)/build/lib/libicuuc.a',
+              '<(SHARED_INTERMEDIATE_DIR)/build/lib/libicudata.a',
+              '<(SHARED_INTERMEDIATE_DIR)/build/lib/libicuio.a'
+            ]
+          }
+        }, {
+          'variables': {
+            'iculibs': ['-licui18n','-licuuc','-licudata','-licuio']
+          }
+        }],
       ],
       'direct_dependent_settings': {
         'php_module_files': [
@@ -171,7 +213,7 @@
             '-lresolv -lstdc++ -lz -lm -ldl -lxml2',
             # these match `icu-config --ldflags`, and are needed because
             # we are building the Intl extension.
-            '-licui18n -licuuc -licudata -licuio'
+            '<@(iculibs)'
         ]
       },
       'sources': [

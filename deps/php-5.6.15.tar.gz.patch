@@ -1,0 +1,66 @@
+Only in php-5.6.15-orig/ext/intl/msgformat: .#msgformat_helpers.cpp
+diff -ruHp php-5.6.15-orig/ext/intl/msgformat/msgformat_helpers.cpp php-5.6.15/ext/intl/msgformat/msgformat_helpers.cpp
+--- php-5.6.15-orig/ext/intl/msgformat/msgformat_helpers.cpp	2015-11-05 10:21:18.000000000 -0500
++++ php-5.6.15/ext/intl/msgformat/msgformat_helpers.cpp	2015-11-05 10:24:14.000000000 -0500
+@@ -54,23 +54,29 @@ U_NAMESPACE_BEGIN
+  * access management.
+  */
+ class MessageFormatAdapter {
++// CSA: Note that ICU uses MessageFormatAdapter internally, and we get
++// linking errors when we try to link against a static libicu if we
++// happen to name our methods the same as they do (in particular,
++// MessageFormatAdapter::getArgTypeList.  Taking a cue from
++// https://github.com/facebook/hhvm/pull/6222, just suffix our names
++// with PHP so they are sure not to conflict.
+ public:
+-    static const Formattable::Type* getArgTypeList(const MessageFormat& m,
++    static const Formattable::Type* getArgTypeListPHP(const MessageFormat& m,
+                                                    int32_t& count);
+ #ifdef HAS_MESSAGE_PATTERN
+-    static const MessagePattern getMessagePattern(MessageFormat* m);
++    static const MessagePattern getMessagePatternPHP(MessageFormat* m);
+ #endif
+ };
+ 
+ const Formattable::Type*
+-MessageFormatAdapter::getArgTypeList(const MessageFormat& m,
++MessageFormatAdapter::getArgTypeListPHP(const MessageFormat& m,
+                                      int32_t& count) {
+     return m.getArgTypeList(count);
+ }
+ 
+ #ifdef HAS_MESSAGE_PATTERN
+ const MessagePattern
+-MessageFormatAdapter::getMessagePattern(MessageFormat* m) {
++MessageFormatAdapter::getMessagePatternPHP(MessageFormat* m) {
+     return m->msgPattern;
+ }
+ #endif
+@@ -79,7 +85,7 @@ U_NAMESPACE_END
+ U_CFUNC int32_t umsg_format_arg_count(UMessageFormat *fmt)
+ {
+ 	int32_t fmt_count = 0;
+-	MessageFormatAdapter::getArgTypeList(*(const MessageFormat*)fmt, fmt_count);
++	MessageFormatAdapter::getArgTypeListPHP(*(const MessageFormat*)fmt, fmt_count);
+ 	return fmt_count;
+ }
+ 
+@@ -98,7 +104,7 @@ static HashTable *umsg_get_numeric_types
+ 		return mfo->mf_data.arg_types;
+ 	}
+ 
+-	const Formattable::Type *types = MessageFormatAdapter::getArgTypeList(
++	const Formattable::Type *types = MessageFormatAdapter::getArgTypeListPHP(
+ 		*(MessageFormat*)mfo->mf_data.umsgf, parts_count);
+ 
+ 	/* Hash table will store Formattable::Type objects directly,
+@@ -298,7 +304,7 @@ static HashTable *umsg_get_types(Message
+ 	MessageFormat *mf = (MessageFormat *)mfo->mf_data.umsgf;
+ 
+ #ifdef HAS_MESSAGE_PATTERN
+-	const MessagePattern mp = MessageFormatAdapter::getMessagePattern(mf);
++	const MessagePattern mp = MessageFormatAdapter::getMessagePatternPHP(mf);
+ 
+ 	return umsg_parse_format(mfo, mp, err TSRMLS_CC);
+ #else
+Only in php-5.6.15/ext/intl/msgformat: msgformat_helpers.cpp~
