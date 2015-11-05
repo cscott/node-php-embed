@@ -167,4 +167,4 @@ script:
 - if scripts/validate_tag.sh --check ; then PUBLISH=true; fi
 # Workaround to trigger a manual x86 build
 - if test "$TRAVIS_BRANCH" == "x86" -a  "${COMMIT_MESSAGE#*'[publish binary]'}" != "$COMMIT_MESSAGE"; then PUBLISH=true; fi
-- if test "$PUBLISH,$PUBLISHABLE" = "true,true"; then npm test && npm install core-js@1.1.4 && npm install request@2.64.0 && npm run gh-publish && if test -n "$BUILD_X86"; then scripts/publish_x86.sh ; fi ; fi
+- if test "$PUBLISH,$PUBLISHABLE" = "true,true"; then npm install core-js@1.1.4 && npm install request@2.64.0 && npm run gh-publish && if test -n "$BUILD_X86"; then scripts/publish_x86.sh ; fi ; fi
