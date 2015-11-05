@@ -110,8 +110,12 @@ before_install:
 - nvm install $NODE_VERSION
 - nvm use $NODE_VERSION
 - if test "$NODE_VERSION" = "0.8.28" ; then npm install -g npm@1.4.28 ; fi
-#- npm config set spin=false
-#- npm config set loglevel=http
+# Work around ECONNRESET issues on travis:
+# https://github.com/npm/npm/issues/7558#issuecomment-97528256
+# https://github.com/npm/npm/issues/7699#issuecomment-93091111
+- npm install -g npm@latest
+- npm config set spin=false
+- npm config set loglevel=http
 - node --version
 - npm --version
 
