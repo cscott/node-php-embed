@@ -45,6 +45,7 @@ if [ `node -e "console.log(process.arch)"` != "ia32" ]; then
 fi
 # install 32 bit compiler toolchain and X11
 # test source compile in 32 bit mode
+npm install -g npm@latest
 npm install --build-from-source
 node-pre-gyp package testpackage
 npm test
