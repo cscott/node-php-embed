@@ -115,7 +115,7 @@ before_install:
 # https://github.com/npm/npm/issues/7699#issuecomment-93091111
 - npm install -g npm@latest
 - npm config set spin=false
-- npm config set loglevel=http
+#- npm config set loglevel=http
 - node --version
 - npm --version
 
